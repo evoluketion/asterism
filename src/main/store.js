@@ -12,6 +12,7 @@ const DEFAULTS = {
     fontSize: 13,
     fontFamily: '',
     toolbarHidden: false,
+    reopenLast: false,   // reopen the last project (or loose panes) with conversations resumed at startup
     theme: 'asterism',
     themeBg: '#0b0e12',  // lets the window open in the theme's colour before the page loads
   },

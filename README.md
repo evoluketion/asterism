@@ -44,7 +44,8 @@ real terminal and puts every session on screen at once, built for a big monitor.
   dividers to resize, and drag title bars to swap panes.
 - **Projects:** a project is a name, a folder and its panes. Inside a project, `Ctrl+Shift+N` opens
   Claude in the project folder straight away. The layout saves as you work, so switching projects
-  and back restores every pane with its conversation resumed.
+  and back restores every pane with its conversation resumed. Tick *Reopen the last project at
+  startup* in ⚙ Settings to have that happen when Asterism opens, too.
 - **12 themes**, 9 dark and 3 light, with live preview. Each theme recolours both the window and
   the terminals.
 - **Works with your setup.** Your shell, your startup files and your `~/.claude/settings.json` are

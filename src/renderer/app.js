@@ -760,6 +760,14 @@ async function deleteProject(id) {
   return true;
 }
 
+// Same as the empty screen's "Reopen" / "Restore last session" button.
+function reopenLast() {
+  const ls = S.lastSession;
+  if (!ls) return;
+  if (ls.project && S.projects[ls.project]) return openProject(ls.project);
+  if (!ls.project && ls.panes && ls.panes.length) return openLayout(ls, { resume: true });
+}
+
 function renderEmpty() {
   const p = activeProject();
   $('#empty h1').textContent = p ? p.name : 'Asterism';
@@ -774,7 +782,7 @@ function renderEmpty() {
   restore.classList.toggle('hidden', !show);
   if (show) {
     restore.textContent = lsProj ? `Reopen ${lsProj.name}` : `Restore last session (${ls.panes.length} pane${ls.panes.length > 1 ? 's' : ''})`;
-    restore.onclick = () => (lsProj ? openProject(lsProj.id) : openLayout(ls, { resume: true }));
+    restore.onclick = reopenLast;
   }
   const box = $('#empty-projects');
   box.replaceChildren(...(p ? [] : Object.values(S.projects).filter(x => x !== lsProj).sort((a, b) => a.name.localeCompare(b.name)).map(proj => {
@@ -985,6 +993,7 @@ function settingsModal() {
       <div style="flex:3"><label>Font family (blank = default)</label><input id="set-ff" value="${esc(st.fontFamily)}" spellcheck="false"></div>
     </div>
     <label class="check"><input id="set-notify" type="checkbox" ${st.notifyDesktop ? 'checked' : ''}> Desktop notification when a pane needs you and Asterism isn't focused</label>
+    <label class="check"><input id="set-reopen" type="checkbox" ${st.reopenLast ? 'checked' : ''}> Reopen the last project at startup, resuming each pane's conversation</label>
     <label class="check"><input id="set-sound" type="checkbox" ${st.sound ? 'checked' : ''}> Sound when a pane you aren't looking at needs you</label>
     <h2 style="margin-top:8px">Shortcuts</h2>
     <div class="keys">${SHORTCUTS.map(([k, d]) => `<kbd>${k}</kbd><span>${d}</span>`).join('')}</div>
@@ -1013,6 +1022,7 @@ function settingsModal() {
       fontFamily: q('#set-ff').value.trim(),
       notifyDesktop: q('#set-notify').checked,
       sound: q('#set-sound').checked,
+      reopenLast: q('#set-reopen').checked,
     });
     applyFont();
     close();
@@ -1196,6 +1206,7 @@ setInterval(() => { for (const v of S.panes.values()) updateBar(v); updateWaitin
   applyToolbarHidden();
   updateProjectUi();
   renderLayout();
+  if (S.settings.reopenLast && !init.test) reopenLast();
   if (init.test) {
     window.__asterismTest = {
       newPane, newPanePopover, applyTheme, settingsModal, setPreset, focusPane, setPeek, closePane, jumpToWaiting, toggleZoom, openLayout, serializeLayout,
