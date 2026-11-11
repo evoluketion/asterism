@@ -56,7 +56,7 @@ real terminal and puts every session on screen at once, built for a big monitor.
 
 ## Install
 
-Download the AppImage (Linux) or the installer (Windows) from
+Download the AppImage (Linux) or the portable `.exe` (Windows) from
 [Releases](https://github.com/evoluketion/asterism/releases). On Linux, make it executable first:
 `chmod +x Asterism-*.AppImage`. You can also build it yourself:
 
@@ -78,8 +78,8 @@ npm install
 npm run dist:win
 ```
 
-This builds `Asterism-<version>-Setup.exe` in `dist/`. Windows uses node-pty's prebuilt ConPTY binaries, so no
-build tools are needed. *The Windows build hasn't been tested yet.*
+This builds a portable `Asterism-<version>.exe` in `dist/`: no install, just run it, like the
+AppImage. Windows uses node-pty's prebuilt ConPTY binaries, so no build tools are needed. *The Windows build hasn't been tested yet.*
 
 ### From source
 
@@ -191,7 +191,7 @@ The self-tests take screenshots into `$ASTERISM_TEST_OUT`.
 3. Write the notes (or click **Generate release notes**) and publish.
 
 Publishing creates the tag, and the tag starts the **Build** workflow. It runs the unit tests,
-builds the Linux AppImage and the Windows installer, and attaches both to your release. The version
+builds the Linux AppImage and the portable Windows `.exe`, and attaches both to your release. The version
 number comes from the tag, so `package.json` doesn't need bumping. ⚙ Settings shows which version
 you're running.
 

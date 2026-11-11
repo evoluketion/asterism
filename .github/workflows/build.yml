@@ -17,7 +17,7 @@ jobs:
             files: dist/*.AppImage
           - os: windows-2025
             target: win
-            files: dist/*-Setup.exe
+            files: dist/*.exe
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -68,7 +68,7 @@ jobs:
         run: |
           flags=""
           case "$TAG" in *-*) flags="--prerelease" ;; esac
-          files=(*.AppImage *-Setup.exe)
+          files=(*.AppImage *.exe)
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${files[@]}" --clobber
           else

@@ -13,7 +13,7 @@
     "postinstall": "node scripts/postinstall.js",
     "icon": "electron scripts/render-icon.js",
     "dist:linux": "electron-builder --linux AppImage --publish never",
-    "dist:win": "electron-builder --win nsis --publish never"
+    "dist:win": "electron-builder --win portable --publish never"
   },
   "dependencies": {
     "@xterm/addon-fit": "0.11.0",
@@ -54,11 +54,11 @@
       "artifactName": "${productName}-${version}.${ext}"
     },
     "win": {
-      "target": "nsis",
+      "target": "portable",
       "icon": "build/icon.png"
     },
-    "nsis": {
-      "artifactName": "${productName}-${version}-Setup.${ext}"
+    "portable": {
+      "artifactName": "${productName}-${version}.${ext}"
     }
   },
   "desktopName": "asterism.desktop"
