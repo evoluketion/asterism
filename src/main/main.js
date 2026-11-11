@@ -115,6 +115,7 @@ function registerIpc() {
     recentDirs: store.data.recentDirs,
     home: require('os').homedir(),
     platform: process.platform,
+    version: app.getVersion(),
     test: !!process.env.ASTERISM_TEST,
   }));
   handle('pane:create', (_e, opts) => {

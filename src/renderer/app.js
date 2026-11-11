@@ -988,7 +988,7 @@ function settingsModal() {
     <label class="check"><input id="set-sound" type="checkbox" ${st.sound ? 'checked' : ''}> Sound when a pane you aren't looking at needs you</label>
     <h2 style="margin-top:8px">Shortcuts</h2>
     <div class="keys">${SHORTCUTS.map(([k, d]) => `<kbd>${k}</kbd><span>${d}</span>`).join('')}</div>
-    <div class="actions"><button id="set-cancel">Cancel</button><button id="set-save" class="primary">Save</button></div>`;
+    <div class="actions"><span class="muted" style="margin-right:auto;align-self:center">Asterism v${esc(S.version)}</span><button id="set-cancel">Cancel</button><button id="set-save" class="primary">Save</button></div>`;
   $('#modal-backdrop').classList.remove('hidden');
   const q = s => m.querySelector(s);
   // Theme cards preview live; Cancel / Escape put the saved theme back.
@@ -1188,7 +1188,7 @@ setInterval(() => { for (const v of S.panes.values()) updateBar(v); updateWaitin
   const init = await api.init();
   Object.assign(S, {
     settings: init.settings, projects: init.projects || {}, lastSession: init.lastSession,
-    recentDirs: init.recentDirs || [], home: init.home,
+    recentDirs: init.recentDirs || [], home: init.home, version: init.version || '',
   });
   buildToolbar();
   wireToolbarPeek();

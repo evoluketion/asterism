@@ -12,8 +12,8 @@
     "rebuild": "electron-rebuild -f -w node-pty",
     "postinstall": "node scripts/postinstall.js",
     "icon": "electron scripts/render-icon.js",
-    "dist:linux": "electron-builder --linux AppImage",
-    "dist:win": "electron-builder --win nsis"
+    "dist:linux": "electron-builder --linux AppImage --publish never",
+    "dist:win": "electron-builder --win nsis --publish never"
   },
   "dependencies": {
     "@xterm/addon-fit": "0.11.0",
@@ -50,11 +50,15 @@
           "Comment": "Tiled terminal for running many Claude Code sessions",
           "StartupWMClass": "asterism"
         }
-      }
+      },
+      "artifactName": "${productName}-${version}.${ext}"
     },
     "win": {
       "target": "nsis",
       "icon": "build/icon.png"
+    },
+    "nsis": {
+      "artifactName": "${productName}-${version}-Setup.${ext}"
     }
   },
   "desktopName": "asterism.desktop"

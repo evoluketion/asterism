@@ -56,6 +56,10 @@ real terminal and puts every session on screen at once, built for a big monitor.
 
 ## Install
 
+Download the AppImage (Linux) or the installer (Windows) from
+[Releases](https://github.com/evoluketion/asterism/releases). On Linux, make it executable first:
+`chmod +x Asterism-*.AppImage`. You can also build it yourself:
+
 ### Linux (AppImage)
 
 ```bash
@@ -74,7 +78,7 @@ npm install
 npm run dist:win
 ```
 
-This builds an NSIS installer in `dist/`. Windows uses node-pty's prebuilt ConPTY binaries, so no
+This builds `Asterism-<version>-Setup.exe` in `dist/`. Windows uses node-pty's prebuilt ConPTY binaries, so no
 build tools are needed. *The Windows build hasn't been tested yet.*
 
 ### From source
@@ -178,6 +182,21 @@ ASTERISM_TEST=shots ASTERISM_SIZE=1600x900 ASTERISM_USER_DATA=/tmp/asterism-shot
 ```
 
 The self-tests take screenshots into `$ASTERISM_TEST_OUT`.
+
+### Releasing
+
+GitHub Actions only runs for tags. Pushing a tag that starts with `v` runs the unit tests, builds
+the Linux AppImage and the Windows installer, and publishes a release with both attached and
+generated notes:
+
+```
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The version number comes from the tag, so `package.json` doesn't need bumping. A tag with a hyphen,
+such as `v1.0.0-beta.1`, is marked as a pre-release. Pushing the same tag again (after deleting it)
+replaces the files on the existing release. ⚙ Settings shows which version you're running.
 
 ### Project layout
 
