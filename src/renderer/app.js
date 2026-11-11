@@ -148,6 +148,11 @@ function createView(snap) {
     if (e.target.classList.contains('pane-name')) renamePrompt(view.id);
     else if (!e.target.closest('button')) toggleZoom(view.id);
   });
+  bar.addEventListener('contextmenu', e => {
+    if (e.target.closest('button')) return;
+    e.preventDefault();
+    renamePrompt(view.id);
+  });
   bar.addEventListener('dragstart', e => { e.dataTransfer.setData('text/asterism-pane', view.id); e.dataTransfer.effectAllowed = 'move'; });
   bar.addEventListener('dragover', e => {
     if (!e.dataTransfer.types.includes('text/asterism-pane')) return;
@@ -230,7 +235,7 @@ async function restartPane(id) {
   const cwd = kind === 'claude' ? (s.startCwd || view.launch.cwd) : view.launch.cwd;
   const resume = kind === 'claude' ? s.sessionId : null;
   const args = kind === view.launch.kind ? view.launch.args : [];
-  const created = await newPane({ kind, name: s.name, cwd, args, resume, replace: id });
+  const created = await newPane({ kind, name: s.autoName ? null : s.name, cwd, args, resume, replace: id });
   if (!created) view.restarting = false;
 }
 
@@ -239,7 +244,7 @@ function renamePrompt(id) {
   if (!view) return;
   const r = view.bar.querySelector('.pane-name').getBoundingClientRect();
   showPopover(r.left, r.bottom + 4, pop => {
-    pop.innerHTML = `<h3>Rename pane</h3><input id="rn" value="${esc(view.status.name)}"><div class="actions"><button id="rn-ok" class="primary">Rename</button></div>`;
+    pop.innerHTML = `<h3>Rename pane</h3><input id="rn" maxlength="60" placeholder="Empty: use the folder name" value="${esc(view.status.name)}"><div class="actions"><button id="rn-ok" class="primary">Rename</button></div>`;
     const input = pop.querySelector('#rn');
     const ok = () => { api.rename(id, input.value.trim()); hidePopover(); focusPane(id); };
     pop.querySelector('#rn-ok').onclick = ok;
@@ -478,7 +483,7 @@ function updateBar(view) {
   const state = effectiveState(view);
   view.el.dataset.state = state;
   view.bar.querySelector('.pane-name').textContent = s.name;
-  view.bar.querySelector('.pane-name').title = `${s.name} — double-click to rename`;
+  view.bar.querySelector('.pane-name').title = `${s.name} — double-click or right-click the bar to rename`;
   const meta = [shortPath(s.cwd), s.branch ? `⎇ ${s.branch}` : ''].filter(Boolean).join('  ');
   const metaEl = view.bar.querySelector('.pane-meta');
   metaEl.textContent = meta;
@@ -628,7 +633,8 @@ function serializeLayout() {
       const kind = v.status.kind;
       const cwd = kind === 'claude' ? (v.status.startCwd || v.launch.cwd) : v.launch.cwd;
       const args = kind === v.launch.kind ? v.launch.args : [];
-      return { kind, name: v.status.name, cwd, args, sessionId: v.status.sessionId || null };
+      // A default name is saved as null so the restored pane follows its folder again.
+      return { kind, name: v.status.autoName ? null : v.status.name, cwd, args, sessionId: v.status.sessionId || null };
     }),
     savedAt: Date.now(),
   };
