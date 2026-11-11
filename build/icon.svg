@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Asterism: four stars joined into a square (like the Great Square of Pegasus), one per pane
+       of a faint 2x2 grid. The green one is a pane that's ready for you. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b2340"/>
+      <stop offset="1" stop-color="#090c16"/>
+    </linearGradient>
+    <radialGradient id="haze" cx="0.72" cy="0.28" r="0.6">
+      <stop offset="0" stop-color="#35d07f" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#35d07f" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowGreen">
+      <stop offset="0" stop-color="#35d07f" stop-opacity="0.75"/>
+      <stop offset="0.35" stop-color="#35d07f" stop-opacity="0.25"/>
+      <stop offset="1" stop-color="#35d07f" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowPale">
+      <stop offset="0" stop-color="#bcd3ff" stop-opacity="0.55"/>
+      <stop offset="0.4" stop-color="#8fb3ff" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#8fb3ff" stop-opacity="0"/>
+    </radialGradient>
+    <!-- Four-pointed star, radius 100, centred on 0,0. -->
+    <path id="star" d="M0,-100 C10,-14 14,-10 100,0 C14,10 10,14 0,100 C-10,14 -14,10 -100,0 C-14,-10 -10,-14 0,-100 Z"/>
+  </defs>
+
+  <rect width="1024" height="1024" rx="228" fill="url(#sky)"/>
+  <rect width="1024" height="1024" rx="228" fill="url(#haze)"/>
+
+  <!-- The panes -->
+  <g fill="#ffffff" fill-opacity="0.025" stroke="#9fb4e6" stroke-opacity="0.16" stroke-width="5">
+    <rect x="128" y="128" width="374" height="374" rx="44"/>
+    <rect x="522" y="128" width="374" height="374" rx="44"/>
+    <rect x="128" y="522" width="374" height="374" rx="44"/>
+    <rect x="522" y="522" width="374" height="374" rx="44"/>
+  </g>
+
+  <!-- The asterism -->
+  <path d="M318,338 L716,282 L694,716 L330,688 Z" fill="none" stroke="#c9d8ff" stroke-opacity="0.42" stroke-width="7" stroke-linejoin="round"/>
+
+  <!-- Pale stars -->
+  <circle cx="318" cy="338" r="120" fill="url(#glowPale)"/>
+  <circle cx="694" cy="716" r="130" fill="url(#glowPale)"/>
+  <circle cx="330" cy="688" r="105" fill="url(#glowPale)"/>
+  <use href="#star" transform="translate(318 338) scale(0.78)" fill="#e8efff"/>
+  <use href="#star" transform="translate(694 716) scale(0.88)" fill="#e8efff"/>
+  <use href="#star" transform="translate(330 688) scale(0.62)" fill="#d6e2ff"/>
+
+  <!-- The one that's ready -->
+  <circle cx="716" cy="282" r="230" fill="url(#glowGreen)"/>
+  <use href="#star" transform="translate(716 282) scale(1.38)" fill="#5ff0a2"/>
+  <use href="#star" transform="translate(716 282) scale(0.62)" fill="#eafff3"/>
+
+  <!-- A few faint background stars -->
+  <g fill="#c9d8ff">
+    <circle cx="214" cy="212" r="7" fill-opacity="0.5"/>
+    <circle cx="842" cy="470" r="6" fill-opacity="0.45"/>
+    <circle cx="470" cy="842" r="7" fill-opacity="0.4"/>
+    <circle cx="512" cy="470" r="5" fill-opacity="0.35"/>
+    <circle cx="190" cy="560" r="5" fill-opacity="0.35"/>
+    <circle cx="830" cy="836" r="6" fill-opacity="0.4"/>
+  </g>
+</svg>

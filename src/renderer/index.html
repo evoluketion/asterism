@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:">
+  <title>Asterism</title>
+  <link rel="stylesheet" href="../../node_modules/@xterm/xterm/css/xterm.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="toolbar-reveal" title="Toolbar (Ctrl+Shift+H to pin)"></div>
+  <header id="toolbar">
+    <div class="brand">Asterism</div>
+    <div class="group">
+      <button id="btn-new-claude" class="primary" title="New Claude pane in a folder you pick (Ctrl+Shift+O)">+ Claude</button>
+      <button id="btn-new-shell" title="New shell pane (Ctrl+Shift+T)">+ Shell</button>
+    </div>
+    <div class="group" id="layouts" role="radiogroup" aria-label="Layout"></div>
+    <div class="spacer"></div>
+    <button id="waiting" class="waiting hidden" title="Jump to the pane that has waited longest (Ctrl+Shift+Space)"></button>
+    <div class="group">
+      <button id="btn-project" title="Projects">No project ▾</button>
+      <button id="btn-settings" title="Settings and shortcuts">⚙</button>
+    </div>
+  </header>
+
+  <main id="stage">
+    <div id="grid"></div>
+    <div id="empty" class="hidden">
+      <h1>Asterism</h1>
+      <p id="empty-sub">Tiled Claude Code sessions with a status light on every pane.</p>
+      <div class="empty-actions">
+        <button id="empty-new" class="primary big">New Claude pane</button>
+        <button id="empty-restore" class="big hidden"></button>
+      </div>
+      <div id="empty-projects"></div>
+      <p class="hint" id="empty-hint"></p>
+    </div>
+  </main>
+
+  <div id="popover" class="popover hidden"></div>
+  <div id="modal-backdrop" class="hidden"><div id="modal"></div></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
