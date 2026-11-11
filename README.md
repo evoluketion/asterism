@@ -185,18 +185,19 @@ The self-tests take screenshots into `$ASTERISM_TEST_OUT`.
 
 ### Releasing
 
-GitHub Actions only runs for tags. Pushing a tag that starts with `v` runs the unit tests, builds
-the Linux AppImage and the Windows installer, and publishes a release with both attached and
-generated notes:
+1. On GitHub, go to **Releases → Draft a new release**.
+2. Pick a tag, or type a new one starting with `v` (e.g. `v1.0.0`) and choose **Create new tag on
+   publish**.
+3. Write the notes (or click **Generate release notes**) and publish.
 
-```
-git tag v1.0.0
-git push origin v1.0.0
-```
+Publishing creates the tag, and the tag starts the **Build** workflow. It runs the unit tests,
+builds the Linux AppImage and the Windows installer, and attaches both to your release. The version
+number comes from the tag, so `package.json` doesn't need bumping. ⚙ Settings shows which version
+you're running.
 
-The version number comes from the tag, so `package.json` doesn't need bumping. A tag with a hyphen,
-such as `v1.0.0-beta.1`, is marked as a pre-release. Pushing the same tag again (after deleting it)
-replaces the files on the existing release. ⚙ Settings shows which version you're running.
+Tick **Set as a pre-release** for tags like `v1.0.0-beta.1`. If you push a tag without creating a
+release first, the workflow creates the release itself, marked as a pre-release when the tag has a
+hyphen.
 
 ### Project layout
 
