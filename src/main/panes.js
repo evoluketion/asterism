@@ -2,6 +2,8 @@
 
 const { EventEmitter } = require('events');
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const pty = require('node-pty');
 const { PaneStatus } = require('./status');
 const claudeConfig = require('./claude-config');
@@ -32,6 +34,7 @@ class PaneManager extends EventEmitter {
   create({ kind = 'claude', name, cwd, args = [], resume = null }) {
     const id = `p${++this.seq}`;
     if (!cwd || !isDir(cwd)) cwd = shell.homeDir();
+    if (resume && !sessionSaved(resume)) resume = null;
     const pane = {
       id, kind, cwd, proc: null, resume,
       name: name || defaultName(cwd, kind),
@@ -121,7 +124,7 @@ class PaneManager extends EventEmitter {
     if (!pane || !pane.alive || !pane.proc) return false;
     const sh = this.getSettings().shell || shell.defaultShell();
     const fam = shell.shellFamily(sh);
-    const sid = pane.status.sessionId;
+    const sid = sessionSaved(pane.status.sessionId) ? pane.status.sessionId : null;
     const clear = fam === 'pwsh' ? '\x1b' : fam === 'cmd' ? '' : '\x15'; // discard any half-typed line
     const resume = sid ? ` --resume ${fam === 'pwsh' ? shell.quotePwsh(sid) : sid}` : '';
     pane.proc.write(`${clear}claude${resume}\r`);
@@ -196,6 +199,17 @@ class PaneManager extends EventEmitter {
   }
 }
 
+// Claude gives a session an ID at startup but only writes its transcript after the first message,
+// so resuming a pane nobody typed in fails with "No conversation found". Transcripts live at
+// <config>/projects/<folder>/<id>.jsonl. If that folder can't be read, assume the session exists.
+function sessionSaved(id) {
+  if (!id || !/^[\w-]+$/.test(id)) return false;
+  const root = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'projects');
+  let dirs;
+  try { dirs = fs.readdirSync(root); } catch { return true; }
+  return dirs.some(d => fs.existsSync(path.join(root, d, `${id}.jsonl`)));
+}
+
 function isDir(p) {
   try { return realFs.statSync(p).isDirectory(); } catch { return false; }
 }
@@ -205,4 +219,4 @@ function defaultName(cwd, kind) {
   return kind === 'shell' ? `${base} (shell)` : base;
 }
 
-module.exports = { PaneManager };
+module.exports = { PaneManager, sessionSaved };

@@ -53,6 +53,11 @@ async function run({ app, win, manager, store }) {
     store.setSettings({ claudeCommand: `${node} ${fake}`, notifyDesktop: false, sound: false });
     process.env.ASTERISM_MCP_OUT = path.join(out, 'mcp-out.json');
     const root = path.join(__dirname, '..', '..');
+    // Claude only writes a transcript once a conversation has a message; resume checks for it.
+    const claudeCfg = fs.mkdtempSync(path.join(app.getPath('temp'), 'asterism-claude-'));
+    fs.mkdirSync(path.join(claudeCfg, 'projects', 'fake'), { recursive: true });
+    process.env.CLAUDE_CONFIG_DIR = claudeCfg;
+    const saveTranscript = sid => sid && fs.writeFileSync(path.join(claudeCfg, 'projects', 'fake', `${sid}.jsonl`), '{}\n');
     const names = ['api-server', 'web-client', 'infra', 'docs'];
     const ids = [];
     // Regression: the first pane opened from the empty screen must sit below the toolbar.
@@ -220,6 +225,7 @@ async function run({ app, win, manager, store }) {
     type(ids[2], 'quit\r');
     check('SessionEnd → shell', await waitFor(() => stateOf(ids[2]) === 'shell'));
     const sid2 = manager.get(ids[2]).status.sessionId;
+    saveTranscript(sid2);
     manager.relaunchClaude(ids[2]);
     check('↻ Claude relaunches in the same shell and resumes the session',
       await waitFor(() => stateOf(ids[2]) === 'idle' && manager.get(ids[2]).status.sessionId === sid2), [stateOf(ids[2]), manager.get(ids[2]).status.sessionId, sid2]);
@@ -286,18 +292,23 @@ async function run({ app, win, manager, store }) {
     await shot('04-three-panes.png');
 
     // Restore the 4-pane layout with resume: claude panes must get --resume <their session id>.
+    // Pane 2 never had a message, so it has no transcript and must start a new session instead.
+    saveTranscript(ws.panes[0].sessionId);
     for (const id of s3.order) await js(`window.__asterismTest.closePane(${JSON.stringify(id)}, { force: true })`);
     await js(`window.__asterismTest.openLayout(${JSON.stringify(ws)}, { resume: true })`);
     const s4 = await js('window.__asterismTest.state()');
     check('layout restore recreates 4 panes', s4.order.length === 4, s4.order);
     const resumed = await waitFor(() => s4.order.slice(0, 3).every(id => manager.get(id) && manager.get(id).status.sessionId), 10000);
     const got = s4.order.slice(0, 3).map(id => manager.get(id).status.sessionId);
-    check('restore resumes each Claude session id', resumed && got.every((sid, i) => sid === ws.panes[i].sessionId), { got, want: ws.panes.slice(0, 3).map(p => p.sessionId) });
+    const want = ws.panes.slice(0, 3).map(p => p.sessionId);
+    check('restore resumes each saved Claude session', resumed && got[0] === want[0] && got[2] === want[2], { got, want });
+    check('…and a blank session with no transcript starts fresh', resumed && got[1] && got[1] !== want[1], { got, want });
 
     // Switching projects: the current one keeps its panes, the new one starts empty.
     await waitFor(() => s4.order.every(id => ['idle', 'shell'].includes(stateOf(id))));
     await sleep(500);
     const savedA = store.data.projects[projA.id].layout.panes.map(p => p.sessionId);
+    savedA.forEach(saveTranscript);
     await js(`window.__asterismTest.createProject({ name: 'other', dir: ${JSON.stringify(root)}, adopt: false })`);
     await sleep(600);
     const projB = Object.values(store.data.projects).find(p => p.name === 'other');
