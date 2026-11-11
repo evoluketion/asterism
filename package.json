@@ -38,6 +38,7 @@
     "asarUnpack": [
       "node_modules/node-pty/**"
     ],
+    "npmRebuild": false,
     "linux": {
       "target": "AppImage",
       "category": "Development",

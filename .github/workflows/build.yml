@@ -43,6 +43,18 @@ jobs:
       - name: Build
         run: npm run dist:${{ matrix.target }}
 
+      # node-pty loads build/Release before prebuilds/, and each conpty.node needs conpty/conpty.dll
+      # beside it. A from-source rebuild leaves the DLL out, so check the one that will be loaded.
+      - name: Check conpty.dll is packaged
+        if: matrix.target == 'win'
+        shell: bash
+        run: |
+          pty=dist/win-unpacked/resources/app.asar.unpacked/node_modules/node-pty
+          dir=$pty/prebuilds/win32-x64
+          [ -f "$pty/build/Release/conpty.node" ] && dir=$pty/build/Release
+          echo "conpty.node will load from $dir"
+          test -f "$dir/conpty/conpty.dll" || { echo "::error::conpty.dll missing from $dir/conpty"; exit 1; }
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: asterism-${{ matrix.target }}

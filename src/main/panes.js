@@ -8,6 +8,9 @@ const claudeConfig = require('./claude-config');
 const shell = require('./shell');
 const git = require('./git');
 
+// Electron's fs treats paths inside app.asar as folders, but the shell can't chdir into them.
+const realFs = (() => { try { return require('original-fs'); } catch { return fs; } })();
+
 const FLUSH_MS = 4;
 const TICK_MS = 500;
 const REPLY_MAX = 4000;
@@ -194,7 +197,7 @@ class PaneManager extends EventEmitter {
 }
 
 function isDir(p) {
-  try { return fs.statSync(p).isDirectory(); } catch { return false; }
+  try { return realFs.statSync(p).isDirectory(); } catch { return false; }
 }
 
 function defaultName(cwd, kind) {
