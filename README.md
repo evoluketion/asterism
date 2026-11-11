@@ -13,10 +13,6 @@
   <img src="docs/images/screenshot.png" alt="Four Claude Code panes in a grid: one working (blue), one needing permission (amber), one finished (green) and one idle" width="900">
 </p>
 
-An *asterism* is a small, recognisable pattern of stars, like the Big Dipper, inside a bigger
-constellation. You read it at a glance. Asterism does that for your Claude Code sessions: every
-pane sits on screen at once, and the bright ones are the ones waiting for you.
-
 ## Why
 
 Running four or more Claude Code sessions in separate terminal windows means constantly checking
