@@ -1230,6 +1230,7 @@ const SHORTCUTS = [
   ['Ctrl+Shift+L', 'Cycle layout'],
   ['Ctrl+Shift+R', 'Rename focused pane'],
   ['Ctrl+Shift+F', 'Search the focused pane\'s scrollback'],
+  ['Ctrl+Shift+E', 'Open the focused pane\'s folder in the file manager'],
   ['Ctrl+Shift+D', 'Show the focused pane\'s git diff (Esc closes)'],
   ['Ctrl+Shift+C / V', 'Copy selection / paste (right-click does the same)'],
   ['Ctrl+Shift+= / -', 'Font size'],
