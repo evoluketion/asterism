@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('asterism', {
   kill: id => ipcRenderer.send('pane:kill', id),
   rename: (id, name) => ipcRenderer.send('pane:rename', id, name),
   relaunchClaude: id => ipcRenderer.invoke('pane:claude', id),
+  diff: id => ipcRenderer.invoke('pane:diff', id),
   setOrder: ids => ipcRenderer.send('layout:order', ids),
   setWaiting: (count, title) => ipcRenderer.send('app:waiting', count, title),
   notify: (paneId, title, body) => ipcRenderer.send('app:notify', paneId, title, body),

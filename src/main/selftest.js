@@ -6,6 +6,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -385,6 +386,47 @@ async function run({ app, win, manager, store }) {
       check('Save keeps the theme', store.settings.theme === 'tokyo-night' && (await bgVar()) === '#1a1b26', [store.settings.theme, await bgVar()]);
       const tbg = (await js('window.__asterismTest.state()')).panes.map(p => p.termBg);
       check('terminals follow the theme', tbg.length && tbg.every(b => b === '#1a1b26'), tbg);
+    }
+
+    // A pane's diff comes from the repo it is working in.
+    {
+      const repo = fs.mkdtempSync(path.join(app.getPath('temp'), 'asterism-diff-'));
+      const g = (...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', '-C', repo, ...a], { stdio: 'ignore' });
+      g('init', '-q');
+      fs.writeFileSync(path.join(repo, 'tracked.txt'), 'before\n');
+      g('add', '.');
+      g('commit', '-q', '-m', 'init');
+      fs.writeFileSync(path.join(repo, 'tracked.txt'), 'after\n');
+      const dId = await js(`window.__asterismTest.newPane(${JSON.stringify({ kind: 'shell', name: 'diff', cwd: repo })})`);
+      const d = await manager.diff(dId);
+      check('pane diff lists the changed file', d && d.files.length === 1 && d.files[0].path === 'tracked.txt' && /^\+after$/m.test(d.patch), d);
+      const box = `document.querySelector('.pane[data-id=${JSON.stringify(dId)}] .pane-diff')`;
+      await js(`window.__asterismTest.toggleDiff(${JSON.stringify(dId)})`);
+      const shown = await waitFor(() => js(`!${box}.classList.contains('hidden') && !!${box}.querySelector('.diff-patch') && ${box}.textContent.includes('tracked.txt')`), 5000);
+      check('± overlay shows the pane\'s diff', shown, await js(`${box}.textContent.slice(0, 300)`));
+      const width = () => js(`[${box}.getBoundingClientRect().width, window.innerWidth]`);
+      const [w1, win1] = await width();
+      check('the diff opens over the whole window', w1 > win1 - 80, [w1, win1]);
+      await shot('11-diff-expanded.png');
+      await js(`${box}.querySelector('.diff-expand').click()`);
+      await sleep(200);
+      const [w2, win2] = await width();
+      check('⛶ puts it back into the pane', w2 < win2 / 2, [w2, win2]);
+      const folded = () => js(`getComputedStyle(${box}.querySelector('.diff-sec-body')).display === 'none'`);
+      await js(`${box}.querySelector('.diff-patch .file').click()`);
+      const fold1 = await folded();
+      await js(`${box}.querySelector('.diff-file').click()`);
+      check('clicking a file header folds it; the file list unfolds it', fold1 && !(await folded()), fold1);
+      await shot('12-diff-in-pane.png');
+      await js(`${box}.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+      await sleep(150);
+      check('Esc closes the diff', await js(`${box}.classList.contains('hidden')`));
+      await js(`window.__asterismTest.toggleDiff(${JSON.stringify(dId)})`);
+      check('reopening goes back to the whole-window view', await js(`${box}.classList.contains('expanded')`));
+      await js(`window.__asterismTest.toggleDiff(${JSON.stringify(dId)})`);
+      await js(`window.__asterismTest.closePane(${JSON.stringify(dId)}, { force: true })`);
+      await sleep(300);
+      fs.rmSync(repo, { recursive: true, force: true });
     }
 
     // Leaving the project closes its panes (kept in the project) and Ctrl+Shift+N asks again.

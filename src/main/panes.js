@@ -188,6 +188,14 @@ class PaneManager extends EventEmitter {
     }
   }
 
+  /** The git diff of the repo the pane is working in, or null for an unknown pane. */
+  async diff(id) {
+    const pane = this.panes.get(id);
+    if (!pane) return null;
+    const cwd = pane.status.claudeCwd || pane.cwd;
+    return { cwd, ...await git.diffOf(cwd) };
+  }
+
   emitStatus(pane) {
     this.emit('status', pane.id, this.snapshot(pane));
   }
