@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('asterism', {
   rename: (id, name) => ipcRenderer.send('pane:rename', id, name),
   relaunchClaude: id => ipcRenderer.invoke('pane:claude', id),
   diff: id => ipcRenderer.invoke('pane:diff', id),
+  prs: (id, scope) => ipcRenderer.invoke('pane:prs', id, scope),
+  landPr: (id, number, headOid) => ipcRenderer.invoke('pane:land', id, number, headOid),
   setOrder: ids => ipcRenderer.send('layout:order', ids),
   setWaiting: (count, title) => ipcRenderer.send('app:waiting', count, title),
   notify: (paneId, title, body) => ipcRenderer.send('app:notify', paneId, title, body),

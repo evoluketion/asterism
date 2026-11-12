@@ -9,6 +9,7 @@ const { PaneStatus } = require('./status');
 const claudeConfig = require('./claude-config');
 const shell = require('./shell');
 const git = require('./git');
+const github = require('./github');
 
 // Electron's fs treats paths inside app.asar as folders, but the shell can't chdir into them.
 const realFs = (() => { try { return require('original-fs'); } catch { return fs; } })();
@@ -25,6 +26,7 @@ class PaneManager extends EventEmitter {
     this.server = server;
     this.getSettings = getSettings;
     this.panes = new Map();
+    this.landing = new Set();
     this.seq = 0;
     this.timer = setInterval(() => this.tick(), TICK_MS);
   }
@@ -199,6 +201,37 @@ class PaneManager extends EventEmitter {
     if (!pane) return null;
     const cwd = pane.status.claudeCwd || pane.cwd;
     return { cwd, ...await git.diffOf(cwd) };
+  }
+
+  /** Environment for gh: the PATH a pane's shell would have, since desktop launches often lack it. */
+  async ghEnv() {
+    const settings = this.getSettings();
+    return { ...shell.claudeEnv(), PATH: await shell.shellPath(settings.shell || shell.defaultShell()) };
+  }
+
+  /** Open pull requests for the repo the pane is working in: its branch's (`scope: 'branch'`) or all of them. */
+  async prs(id, scope) {
+    const pane = this.panes.get(id);
+    if (!pane) return null;
+    const cwd = pane.status.claudeCwd || pane.cwd;
+    return { cwd, ...await github.prsOf(cwd, { scope: scope === 'all' ? 'all' : 'branch', env: await this.ghEnv() }) };
+  }
+
+  /** Readies, approves and merges PR `number` in the pane's repo, with the merge method from settings. */
+  async landPr(id, number, headOid) {
+    const pane = this.panes.get(id);
+    if (!pane) return null;
+    const cwd = pane.status.claudeCwd || pane.cwd;
+    const method = this.getSettings().prMergeMethod;
+    if (!github.MERGE_METHODS.includes(method)) return { ok: false, error: true, kind: 'other', message: `Unknown merge method "${method}".`, steps: [] };
+    const key = `${cwd}#${number}`;
+    if (this.landing.has(key)) return { ok: false, error: true, kind: 'busy', message: `#${number} is already being merged.`, steps: [] };
+    this.landing.add(key);
+    try {
+      return await github.landPr(cwd, number, { method, headOid: typeof headOid === 'string' ? headOid : '', env: await this.ghEnv() });
+    } finally {
+      this.landing.delete(key);
+    }
   }
 
   emitStatus(pane) {
