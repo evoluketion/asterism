@@ -40,6 +40,8 @@ real terminal and puts every session on screen at once, built for a big monitor.
 - **Panes can see each other.** Ask a pane *"what are the other panes doing?"* and Claude uses
   Asterism's built-in, read-only MCP tools: `list_panes`, `get_pane_transcript` and
   `read_pane_screen`. Panes can't type into each other.
+- **Git at a glance.** Each title bar shows the pane's folder and git branch, and `±` opens the
+  git diff of the repo the pane is working in, so every worktree shows its own changes.
 - **Layouts:** grid (four panes = four corners), columns, rows, main + stack and main + row. Drag
   dividers to resize, and drag title bars to swap panes.
 - **Projects:** a project is a name, a folder and its panes. Inside a project, `Ctrl+Shift+N` opens
@@ -154,7 +156,11 @@ a project removes its entries.
 | `Ctrl+Shift+=` / `-` | Font size |
 | `Shift+Enter` | Newline in the Claude prompt |
 | `Ctrl+Shift+H` | Hide / show the toolbar. When it's hidden, hover the top edge to slide it down. |
+| Drag a title bar | Swap two panes |
+| Double-click a title bar | Zoom / unzoom (double-clicking the name renames instead) |
+| Double-click a divider | Even out the panes on either side |
 | `F11` | Fullscreen |
+| `F12` | Developer tools |
 
 Shortcuts use `Ctrl+Shift` so they never take a key a program in the pane might need.
 
@@ -202,7 +208,8 @@ across automatically the first time Asterism starts.
 ## Development
 
 ```bash
-npm test     # unit tests: layout, status rules, server and MCP, settings store
+npm test     # unit tests: layout, status rules, server and MCP, settings store, pane names,
+             # session resume, git, completed-pane archive, shell PATH, issue-build variants
 npm run icon # re-render build/icon.png and src/assets/icon.png from build/icon.svg
 
 # The whole app with stand-in Claude panes (test/fake-claude.js fires hooks like Claude Code does)
@@ -245,13 +252,18 @@ src/
     claude-config.js  per-pane hook settings, MCP config and the claude wrapper
     shell.js          shell detection and startup (bash, zsh, fish, pwsh, cmd)
     mcp-tools.js      list_panes, get_pane_transcript, read_pane_screen
-    store.js          settings and projects
+    transcript.js     reading Claude's conversation transcripts
+    git.js            branch and diff for a pane's folder
+    archive.js        completed-pane history and handoff summaries
+    variant.js        issue-build labelling from the branch name
+    store.js          settings, projects and completed history
     selftest.js       demo / real / screenshot self-tests
   renderer/
     app.js            panes, layouts, projects, shortcuts, settings
     layout.js         split-tree layouts
     themes.js         colour themes
   preload.js          the bridge between window and main process
+scripts/              packaging (dist.js), icon rendering, postinstall
 test/                 unit tests and the fake claude
 build/                icon source (icon.svg) and packaging icon
 docs/                 design notes and README images
