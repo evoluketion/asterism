@@ -171,6 +171,24 @@ Solarized Dark, Solarized Light, GitHub Light and Catppuccin Latte. Pick one in 
 light theme, also run `/theme` in Claude Code and choose a light option, so Claude's own text
 colours stay readable.
 
+### Settings
+
+Everything in ⚙ Settings:
+
+| Setting | What it does |
+|---|---|
+| Theme | Window and terminal colours. Click a theme to preview it, and Cancel puts the old one back. |
+| Claude command | What a pane runs as `claude`. The default is `claude`. Set a program path, or a command line such as `claude --model opus`. |
+| Shell | The shell panes start in. Blank uses `$SHELL`, or `pwsh` (falling back to Windows PowerShell) on Windows. |
+| Font size / Font family | Terminal font. A blank family uses the built-in default. |
+| Background work timeout | Minutes of hook silence before a pane with background work running is marked ready. The default is 10, and 0 waits indefinitely. |
+| Desktop notification | Notify when a pane needs you and Asterism isn't focused. On by default. |
+| Reopen the last project at startup | Restore the last project's panes and resume their conversations when Asterism opens. Off by default. |
+| Sound | Play a sound when a pane you aren't looking at needs you. On by default. |
+| Summarise completed panes with Claude | Write a handoff summary when you close a pane with ✓, so it can be reopened later. Uses tokens. Off by default. When it's on, you can also edit the **summary prompt** (Reset to default restores it) and choose a **summary model** (blank uses Claude's default). |
+
+The bottom of the dialog lists every shortcut and shows which version you're running.
+
 ## How it works
 
 - **Hooks, not screen scraping.** Each pane gets a small `claude` wrapper first on its PATH, which
