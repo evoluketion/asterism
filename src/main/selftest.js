@@ -6,6 +6,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -239,7 +240,7 @@ async function run({ app, win, manager, store }) {
     await waitFor(() => stateOf(ids[3]) === 'shell');
 
     const keyN = () => js(`window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyN', key: 'N', ctrlKey: true, shiftKey: true, bubbles: true }))`);
-    const popOpen = () => js(`!document.querySelector('#popover').classList.contains('hidden') && !!document.querySelector('#popover #np-dir')`);
+    const popOpen = (sel = '#np-dir') => js(`!document.querySelector('#popover').classList.contains('hidden') && !!document.querySelector('#popover ${sel}')`);
 
     // Outside a project, Ctrl+Shift+N asks for a folder (same picker as Ctrl+Shift+O).
     const n0 = (await js('window.__asterismTest.state()')).order.length;
@@ -267,11 +268,27 @@ async function run({ app, win, manager, store }) {
     check('…which reaches idle via hooks', await waitFor(() => stateOf(newId) === 'idle'), stateOf(newId));
     await sleep(500);
     check('…and the project saved it', store.data.projects[projA.id].layout.panes.length === n0 + 1, store.data.projects[projA.id].layout.panes.length);
+    check('…with its name marked as the default', store.data.projects[projA.id].layout.panes[n0].name === null, store.data.projects[projA.id].layout.panes[n0]);
     // /exit, cd elsewhere, run claude by hand: still hooked, and the pane renames to the new folder.
     type(newId, 'quit\r');
     await waitFor(() => stateOf(newId) === 'shell');
     type(newId, `cd ${JSON.stringify(root)} && claude\r`);
     check('/exit + cd + claude: hooked and renamed after the new folder', await waitFor(() => stateOf(newId) === 'idle' && manager.get(newId).name === path.basename(root)), [stateOf(newId), manager.get(newId).name]);
+    // Rename through the popover, then clear it: the pane goes back to its folder name.
+    const renameTo = async value => {
+      await hk('KeyR');
+      await waitFor(() => popOpen('#rn'), 2000);
+      await js(`(() => { const i = document.querySelector('#popover #rn'); i.value = ${JSON.stringify(value)}; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); })()`);
+    };
+    await renameTo('picked');
+    check('rename popover sets a chosen name', await waitFor(() => manager.get(newId).name === 'picked' && !manager.get(newId).autoName, 2000), manager.get(newId).name);
+    await renameTo('');
+    check('…and clearing it restores the folder name', await waitFor(() => manager.get(newId).name === path.basename(root) && manager.get(newId).autoName, 2000), manager.get(newId).name);
+    await js(`document.querySelector('.pane[data-id=${JSON.stringify(newId)}] .pane-bar').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))`);
+    check('right-click on the title bar opens the rename popover', await waitFor(() => popOpen('#rn'), 2000));
+    await js(`document.querySelector('#popover #rn-ok').click()`);
+    await waitFor(async () => !(await popOpen('#rn')), 2000);
+    check('…and confirming the unchanged name keeps it following the folder', manager.get(newId).autoName === true, manager.get(newId).name);
     type(newId, 'quit\r');
     await waitFor(() => stateOf(newId) === 'shell');
     await js(`window.__asterismTest.closePane(${JSON.stringify(newId)}, { force: true })`);
@@ -303,6 +320,8 @@ async function run({ app, win, manager, store }) {
     const want = ws.panes.slice(0, 3).map(p => p.sessionId);
     check('restore resumes each saved Claude session', resumed && got[0] === want[0] && got[2] === want[2], { got, want });
     check('…and a blank session with no transcript starts fresh', resumed && got[1] && got[1] !== want[1], { got, want });
+    const restoredNames = s4.order.map(id => [manager.get(id).name, manager.get(id).autoName]);
+    check('restore keeps each pane\'s chosen name', restoredNames.every(([n, auto], i) => n === ws.panes[i].name && auto === false), restoredNames);
 
     // Switching projects: the current one keeps its panes, the new one starts empty.
     await waitFor(() => s4.order.every(id => ['idle', 'shell'].includes(stateOf(id))));
@@ -367,6 +386,47 @@ async function run({ app, win, manager, store }) {
       check('Save keeps the theme', store.settings.theme === 'tokyo-night' && (await bgVar()) === '#1a1b26', [store.settings.theme, await bgVar()]);
       const tbg = (await js('window.__asterismTest.state()')).panes.map(p => p.termBg);
       check('terminals follow the theme', tbg.length && tbg.every(b => b === '#1a1b26'), tbg);
+    }
+
+    // A pane's diff comes from the repo it is working in.
+    {
+      const repo = fs.mkdtempSync(path.join(app.getPath('temp'), 'asterism-diff-'));
+      const g = (...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', '-C', repo, ...a], { stdio: 'ignore' });
+      g('init', '-q');
+      fs.writeFileSync(path.join(repo, 'tracked.txt'), 'before\n');
+      g('add', '.');
+      g('commit', '-q', '-m', 'init');
+      fs.writeFileSync(path.join(repo, 'tracked.txt'), 'after\n');
+      const dId = await js(`window.__asterismTest.newPane(${JSON.stringify({ kind: 'shell', name: 'diff', cwd: repo })})`);
+      const d = await manager.diff(dId);
+      check('pane diff lists the changed file', d && d.files.length === 1 && d.files[0].path === 'tracked.txt' && /^\+after$/m.test(d.patch), d);
+      const box = `document.querySelector('.pane[data-id=${JSON.stringify(dId)}] .pane-diff')`;
+      await js(`window.__asterismTest.toggleDiff(${JSON.stringify(dId)})`);
+      const shown = await waitFor(() => js(`!${box}.classList.contains('hidden') && !!${box}.querySelector('.diff-patch') && ${box}.textContent.includes('tracked.txt')`), 5000);
+      check('± overlay shows the pane\'s diff', shown, await js(`${box}.textContent.slice(0, 300)`));
+      const width = () => js(`[${box}.getBoundingClientRect().width, window.innerWidth]`);
+      const [w1, win1] = await width();
+      check('the diff opens over the whole window', w1 > win1 - 80, [w1, win1]);
+      await shot('11-diff-expanded.png');
+      await js(`${box}.querySelector('.diff-expand').click()`);
+      await sleep(200);
+      const [w2, win2] = await width();
+      check('⛶ puts it back into the pane', w2 < win2 / 2, [w2, win2]);
+      const folded = () => js(`getComputedStyle(${box}.querySelector('.diff-sec-body')).display === 'none'`);
+      await js(`${box}.querySelector('.diff-patch .file').click()`);
+      const fold1 = await folded();
+      await js(`${box}.querySelector('.diff-file').click()`);
+      check('clicking a file header folds it; the file list unfolds it', fold1 && !(await folded()), fold1);
+      await shot('12-diff-in-pane.png');
+      await js(`${box}.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+      await sleep(150);
+      check('Esc closes the diff', await js(`${box}.classList.contains('hidden')`));
+      await js(`window.__asterismTest.toggleDiff(${JSON.stringify(dId)})`);
+      check('reopening goes back to the whole-window view', await js(`${box}.classList.contains('expanded')`));
+      await js(`window.__asterismTest.toggleDiff(${JSON.stringify(dId)})`);
+      await js(`window.__asterismTest.closePane(${JSON.stringify(dId)}, { force: true })`);
+      await sleep(300);
+      fs.rmSync(repo, { recursive: true, force: true });
     }
 
     // Leaving the project closes its panes (kept in the project) and Ctrl+Shift+N asks again.

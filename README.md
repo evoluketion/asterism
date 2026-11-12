@@ -82,6 +82,13 @@ npm run dist:win
 This builds a portable `Asterism-<version>.exe` in `dist/`: no install, just run it, like the
 AppImage. Windows uses node-pty's prebuilt ConPTY binaries, so no build tools are needed. *The Windows build hasn't been tested yet.*
 
+### Issue builds
+
+Building or running from an issue branch (`feat/42-dark-mode`) labels the app with the issue
+number: the file is `Asterism-<version>-issue-42`, the window says "Asterism #42", and it keeps its
+own settings and projects. That lets it run next to your everyday Asterism instead of focusing it.
+`ASTERISM_VARIANT=` (empty) builds a plain one.
+
 ### From source
 
 Requirements: Node 20+, npm, and `claude` on your PATH.
@@ -106,6 +113,9 @@ You can `/exit`, `cd` somewhere else and run `claude` again in any pane; the pan
 light and renames itself after the new folder. When a pane's process exits, press Enter to restart
 it, and a Claude pane resumes its conversation.
 
+To rename a pane, right-click its title bar, double-click its name or press `Ctrl+Shift+R`. The
+name is saved with the project. Clear the name to go back to the folder name.
+
 ### Shortcuts
 
 | Shortcut | Action |
@@ -122,6 +132,7 @@ it, and a Claude pane resumes its conversation.
 | `Ctrl+Shift+L` | Cycle layout |
 | `Ctrl+Shift+R` | Rename pane |
 | `Ctrl+Shift+F` | Search scrollback |
+| `Ctrl+Shift+D` | Git diff of the repo the pane is working in (the `±` button does the same). It opens over the whole window; ⛶ puts it back into the pane |
 | `Ctrl+Shift+C` / `V`, right-click | Copy / paste |
 | `Ctrl+Shift+=` / `-` | Font size |
 | `Shift+Enter` | Newline in the Claude prompt |

@@ -6,17 +6,28 @@ const { Store, newProjectId } = require('./store');
 const { createServer } = require('./server');
 const { PaneManager } = require('./panes');
 const { createToolHandler } = require('./mcp-tools');
+const { detectVariant } = require('./variant');
 
-app.setName('Asterism');
-if (process.platform === 'win32') app.setAppUserModelId('dev.local.asterism');
+/**
+ * An issue-branch build is labelled with its issue number and keeps its own user data. Electron's
+ * single-instance lock lives in that folder, so the build runs alongside the main one.
+ */
+const variant = process.env.ASTERISM_VARIANT ?? (app.isPackaged
+  ? require(path.join(app.getAppPath(), 'package.json')).asterismVariant
+  : detectVariant(app.getAppPath())) ?? null;
+const APP_NAME = variant ? `Asterism #${variant}` : 'Asterism';
+
+app.setName(APP_NAME);
+if (process.platform === 'win32') app.setAppUserModelId(variant ? `dev.local.asterism.issue-${variant}` : 'dev.local.asterism');
 if (process.env.ASTERISM_USER_DATA) app.setPath('userData', process.env.ASTERISM_USER_DATA);
+else app.setPath('userData', path.join(app.getPath('appData'), variant ? `Asterism-issue-${variant}` : 'Asterism'));
 
 const primary = process.env.ASTERISM_TEST || app.requestSingleInstanceLock();
 if (!primary) app.quit();
 
 // The app was called Alpha before it was renamed. Bring its settings and projects across once.
 function importPreRenameState() {
-  if (process.env.ASTERISM_USER_DATA) return;
+  if (process.env.ASTERISM_USER_DATA || variant) return;
   const fs = require('fs');
   const dest = path.join(app.getPath('userData'), 'asterism-state.json');
   const old = path.join(app.getPath('appData'), 'Alpha', 'alpha-state.json');
@@ -58,7 +69,7 @@ function createWindow() {
     minWidth: 640,
     minHeight: 400,
     backgroundColor: /^#[0-9a-f]{6}$/i.test(store.settings.themeBg || '') ? store.settings.themeBg : '#0b0e12',
-    title: 'Asterism',
+    title: APP_NAME,
     icon: path.join(__dirname, '..', 'assets', 'icon.png'),
     autoHideMenuBar: true,
     webPreferences: {
@@ -116,6 +127,7 @@ function registerIpc() {
     home: require('os').homedir(),
     platform: process.platform,
     version: app.getVersion(),
+    appName: APP_NAME,
     test: !!process.env.ASTERISM_TEST,
   }));
   handle('pane:create', (_e, opts) => {
@@ -128,10 +140,11 @@ function registerIpc() {
   listen('pane:kill', (_e, id) => manager.kill(id));
   listen('pane:rename', (_e, id, name) => manager.rename(id, name));
   handle('pane:claude', (_e, id) => manager.relaunchClaude(id));
+  handle('pane:diff', (_e, id) => manager.diff(id));
   listen('layout:order', (_e, ids) => { order = Array.isArray(ids) ? ids : []; });
   listen('app:waiting', (_e, count, title) => {
     if (!win) return;
-    win.setTitle(title || 'Asterism');
+    win.setTitle(title || APP_NAME);
     if (count > 0 && !win.isFocused()) win.flashFrame(true);
     if (count === 0) win.flashFrame(false);
   });

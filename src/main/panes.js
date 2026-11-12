@@ -35,6 +35,7 @@ class PaneManager extends EventEmitter {
     const id = `p${++this.seq}`;
     if (!cwd || !isDir(cwd)) cwd = shell.homeDir();
     if (resume && !sessionSaved(resume)) resume = null;
+    name = cleanName(name);
     const pane = {
       id, kind, cwd, proc: null, resume,
       name: name || defaultName(cwd, kind),
@@ -133,9 +134,12 @@ class PaneManager extends EventEmitter {
 
   rename(id, name) {
     const pane = this.panes.get(id);
-    if (!pane || !name) return;
-    pane.autoName = false;
-    pane.name = String(name).slice(0, 60);
+    if (!pane || typeof name !== 'string') return;
+    const clean = cleanName(name);
+    // Confirming the current name leaves a default name following its folder.
+    if (clean === pane.name) return;
+    pane.autoName = !clean;
+    pane.name = clean || defaultName(pane.status.claudeCwd || pane.cwd, pane.status.kind);
     this.emitStatus(pane);
   }
 
@@ -187,6 +191,14 @@ class PaneManager extends EventEmitter {
     }
   }
 
+  /** The git diff of the repo the pane is working in, or null for an unknown pane. */
+  async diff(id) {
+    const pane = this.panes.get(id);
+    if (!pane) return null;
+    const cwd = pane.status.claudeCwd || pane.cwd;
+    return { cwd, ...await git.diffOf(cwd) };
+  }
+
   emitStatus(pane) {
     this.emit('status', pane.id, this.snapshot(pane));
   }
@@ -194,7 +206,7 @@ class PaneManager extends EventEmitter {
   snapshot(pane) {
     const s = pane.status.toJSON();
     if (s.lastReply && s.lastReply.length > REPLY_MAX) s.lastReply = s.lastReply.slice(0, REPLY_MAX) + '…';
-    return { id: pane.id, name: pane.name, kind: pane.kind, cwd: s.claudeCwd || pane.cwd, branch: pane.branch, alive: pane.alive, args: pane.args, ...s };
+    return { id: pane.id, name: pane.name, autoName: pane.autoName, kind: pane.kind, cwd: s.claudeCwd || pane.cwd, branch: pane.branch, alive: pane.alive, args: pane.args, ...s };
   }
 
   list() {
@@ -215,6 +227,11 @@ function sessionSaved(id) {
 
 function isDir(p) {
   try { return realFs.statSync(p).isDirectory(); } catch { return false; }
+}
+
+/** Names reach the shell command line through `claude -n`, so control characters are dropped. */
+function cleanName(name) {
+  return String(name ?? '').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 60).trim();
 }
 
 function defaultName(cwd, kind) {

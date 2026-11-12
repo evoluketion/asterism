@@ -63,6 +63,9 @@ Drag dividers to resize. Zoom toggles one pane to fill the window.
 
 ## UX
 - Pane chrome: thin title bar (name, cwd, branch, state chip, last reply one-liner), coloured border.
+- Git diff: `±` / Ctrl+Shift+D overlays the pane with `git diff HEAD` (staged + unstaged, untracked by
+  name) for the repo containing the pane's cwd, so worktrees each show their own. Read-only, refreshed on
+  demand. Opens over the whole window; ⛶ docks it into the pane.
 - Toolbar: + Claude pane, + shell pane, layout picker, project menu, waiting counter.
 - Hotkeys (app-level, so they never collide with Claude's TUI):
   Ctrl+Shift+Space jump to longest-waiting pane · Ctrl+Shift+N new Claude pane ·
