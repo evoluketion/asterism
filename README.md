@@ -106,6 +106,9 @@ You can `/exit`, `cd` somewhere else and run `claude` again in any pane; the pan
 light and renames itself after the new folder. When a pane's process exits, press Enter to restart
 it, and a Claude pane resumes its conversation.
 
+To rename a pane, right-click its title bar, double-click its name or press `Ctrl+Shift+R`. The
+name is saved with the project. Clear the name to go back to the folder name.
+
 ### Shortcuts
 
 | Shortcut | Action |
