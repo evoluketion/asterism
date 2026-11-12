@@ -175,8 +175,11 @@ class PaneManager extends EventEmitter {
   }
 
   tick() {
+    const min = Number(this.getSettings().backgroundQuietMin);
+    const backgroundQuietMs = Number.isFinite(min) && min >= 0 ? min * 60000 : undefined;
+    const now = Date.now();
     for (const pane of this.panes.values()) {
-      if (pane.status.tick()) this.emitStatus(pane);
+      if (pane.status.tick(now, backgroundQuietMs)) this.emitStatus(pane);
     }
   }
 

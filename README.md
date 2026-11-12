@@ -163,7 +163,12 @@ colours stay readable.
 - **Fallbacks** for things Claude doesn't report:
   - Esc or Ctrl+C in a busy pane, followed by 1.5 s of quiet, marks the pane idle.
   - A working pane with 30 s of silence is marked ready. Claude's spinner repaints about every
-    250 ms, so silence means it has stopped.
+    250 ms, so silence means it has stopped. This is skipped while Claude has finished its reply
+    but background tasks (subagents, background shells) are still running; the pane stays working
+    until they finish.
+  - Background work that sends no hook events for 10 minutes (for example a background dev server)
+    marks the pane ready. Change the time, or set 0 to wait indefinitely, under *Background work
+    timeout* in ⚙ Settings.
 
 More detail is in [docs/DESIGN.md](docs/DESIGN.md).
 

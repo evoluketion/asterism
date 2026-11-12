@@ -33,7 +33,7 @@ Event → state:
 | PermissionRequest, Notification(permission_prompt) | `permission` (amber pulse) |
 | Notification(elicitation_dialog) | `question` |
 | Notification(idle_prompt) | ready (backup) |
-| Stop | `ready` (green, persistent) — read last assistant msg from transcript |
+| Stop | `ready` (green, persistent) — read last assistant msg from transcript. Stays `working` while `background_tasks` lists unfinished non-monitor tasks; Claude Code sends another Stop when they finish |
 | SessionEnd | `shell` (claude exited, shell still alive) |
 | PTY exit | `exited` (red) |
 
@@ -41,6 +41,11 @@ Event → state:
 Interrupt fallback: Stop does not fire on Esc/Ctrl+C. If the user presses Esc/Ctrl+C in a
 `working` pane and PTY output then goes quiet for 1.5 s → `idle`. Generic fallback: `working` with
 no PTY output for 30 s → `ready` flagged `inferred` (Claude's spinner normally repaints constantly).
+Both fallbacks, and the idle_prompt backup, are skipped while only background tasks are running:
+the main thread is at its prompt and background subagents write almost nothing to the PTY. Instead,
+background work that fires no hook event for `backgroundQuietMin` minutes (default 10, 0 = never)
+→ `ready` flagged `inferred`. Working subagents keep firing tool hooks; a background dev server
+fires none, so this is what releases a pane left running one.
 
 ## Pane-to-pane awareness — MCP over HTTP
 Main process hosts a minimal Streamable-HTTP MCP endpoint at `/mcp/<paneId>`; each claude gets

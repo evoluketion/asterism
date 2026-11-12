@@ -13,6 +13,7 @@ const DEFAULTS = {
     fontFamily: '',
     toolbarHidden: false,
     reopenLast: false,   // reopen the last project (or loose panes) with conversations resumed at startup
+    backgroundQuietMin: 10, // background work with no hook events this long counts as done; 0 = never
     theme: 'asterism',
     themeBg: '#0b0e12',  // lets the window open in the theme's colour before the page loads
   },
