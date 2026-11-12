@@ -57,10 +57,12 @@ async function readTurns(path) {
   }
 }
 
-async function lastAssistantText(path) {
-  const turns = await readTurns(path);
-  for (let i = turns.length - 1; i >= 0; i--) if (turns[i].role === 'assistant') return turns[i].text;
-  return null;
+function lastAssistant(turns) {
+  return turns.findLast(t => t.role === 'assistant')?.text ?? null;
 }
 
-module.exports = { parseTurns, readTurns, lastAssistantText };
+async function lastAssistantText(path) {
+  return lastAssistant(await readTurns(path));
+}
+
+module.exports = { parseTurns, readTurns, lastAssistant, lastAssistantText };

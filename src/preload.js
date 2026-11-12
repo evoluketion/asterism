@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('asterism', {
   saveProject: p => ipcRenderer.invoke('project:save', p),
   deleteProject: id => ipcRenderer.invoke('project:delete', id),
   saveSession: (ws, projectId) => ipcRenderer.send('session:save', ws, projectId),
+  completePane: (id, projectId) => ipcRenderer.invoke('archive:complete', id, projectId),
+  removeArchived: entryId => ipcRenderer.invoke('archive:remove', entryId),
   clipboardRead: () => ipcRenderer.invoke('clipboard:read'),
   clipboardWrite: text => ipcRenderer.send('clipboard:write', text),
   openExternal: url => ipcRenderer.send('open:external', url),
@@ -36,4 +38,5 @@ contextBridge.exposeInMainWorld('asterism', {
   onExit: on('pane:exit'),
   onScreenRequest: on('screen:request'),
   onFocusPane: on('pane:focus'),
+  onArchiveChanged: on('archive:changed'),
 });
