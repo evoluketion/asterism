@@ -62,7 +62,8 @@ Presets (columns, rows, grid, main-left, main-top) just rebuild the tree from th
 Drag dividers to resize. Zoom toggles one pane to fill the window.
 
 ## UX
-- Pane chrome: thin title bar (name, cwd, branch, state chip, last reply one-liner), coloured border.
+- Pane chrome: thin title bar (name, cwd, branch, state chip, last reply one-liner), coloured border;
+  clicking the cwd opens it in the file manager.
 - Git diff: `±` / Ctrl+Shift+D overlays the pane with `git diff HEAD` (staged + unstaged, untracked by
   name) for the repo containing the pane's cwd, so worktrees each show their own. Read-only, refreshed on
   demand. Opens over the whole window; ⛶ docks it into the pane.
@@ -71,7 +72,7 @@ Drag dividers to resize. Zoom toggles one pane to fill the window.
   Ctrl+Shift+Space jump to longest-waiting pane · Ctrl+Shift+N new Claude pane ·
   Ctrl+Shift+T new shell pane · Ctrl+Shift+W close pane · Ctrl+Shift+Enter zoom ·
   Ctrl+Shift+Arrows move focus · Ctrl+Shift+1..9 focus pane n · Ctrl+Shift+L cycle layout ·
-  Ctrl+Shift+C / V copy / paste.
+  Ctrl+Shift+E open the pane's folder · Ctrl+Shift+C / V copy / paste.
 - Shift+Enter sends ESC CR so it inserts a newline in Claude's prompt.
 - Optional desktop notification + sound when a pane needs you and the window is unfocused.
 - Projects: {name, folder, layout}, saved in userData. One project is active per window. Inside it,

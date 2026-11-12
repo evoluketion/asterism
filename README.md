@@ -116,6 +116,9 @@ it, and a Claude pane resumes its conversation.
 To rename a pane, right-click its title bar, double-click its name or press `Ctrl+Shift+R`. The
 name is saved with the project. Clear the name to go back to the folder name.
 
+To open a pane's folder in your file manager, click the folder in its title bar or press
+`Ctrl+Shift+E`. A plain shell pane opens the folder it started in, even after a `cd`.
+
 ### Shortcuts
 
 | Shortcut | Action |
@@ -132,6 +135,7 @@ name is saved with the project. Clear the name to go back to the folder name.
 | `Ctrl+Shift+L` | Cycle layout |
 | `Ctrl+Shift+R` | Rename pane |
 | `Ctrl+Shift+F` | Search scrollback |
+| `Ctrl+Shift+E` | Open the pane's folder in the file manager |
 | `Ctrl+Shift+D` | Git diff of the repo the pane is working in (the `±` button does the same). It opens over the whole window; ⛶ puts it back into the pane |
 | `Ctrl+Shift+C` / `V`, right-click | Copy / paste |
 | `Ctrl+Shift+=` / `-` | Font size |

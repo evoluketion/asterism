@@ -157,6 +157,9 @@ function createView(snap) {
   bar.querySelector('.diff').addEventListener('click', e => { e.stopPropagation(); toggleDiff(view.id); });
   bar.querySelector('.close').addEventListener('click', e => { e.stopPropagation(); closePane(view.id); });
   bar.querySelector('.zoom').addEventListener('click', e => { e.stopPropagation(); toggleZoom(view.id); });
+  const metaEl = bar.querySelector('.pane-meta');
+  metaEl.addEventListener('click', e => { e.stopPropagation(); api.openDir(view.id); });
+  metaEl.addEventListener('dblclick', e => e.stopPropagation());
   bar.addEventListener('dblclick', e => {
     if (e.target.classList.contains('pane-name')) renamePrompt(view.id);
     else if (!e.target.closest('button')) toggleZoom(view.id);
@@ -648,7 +651,7 @@ function updateBar(view) {
   const meta = [shortPath(s.cwd), s.branch ? `⎇ ${s.branch}` : ''].filter(Boolean).join('  ');
   const metaEl = view.bar.querySelector('.pane-meta');
   metaEl.textContent = meta;
-  metaEl.title = s.cwd || '';
+  metaEl.title = s.cwd ? `${s.cwd} — click to open folder` : '';
 
   const replyEl = view.bar.querySelector('.pane-reply');
   let reply = '';
@@ -1276,7 +1279,7 @@ function handleHotkey(e) {
   if (e.code === 'Tab') { cyclePane(e.shiftKey ? -1 : 1); return true; }
   if (!e.shiftKey) return false;
   // Held-down keys auto-repeat; never let that open, close or re-layout panes repeatedly.
-  if (e.repeat && ['KeyN', 'KeyO', 'KeyT', 'KeyW', 'KeyL', 'Enter', 'KeyR', 'KeyF', 'KeyH', 'KeyD'].includes(e.code)) return true;
+  if (e.repeat && ['KeyN', 'KeyO', 'KeyT', 'KeyW', 'KeyL', 'Enter', 'KeyR', 'KeyF', 'KeyH', 'KeyE', 'KeyD'].includes(e.code)) return true;
   const v = S.focused && S.panes.get(S.focused);
   const digit = /^Digit([1-9])$/.exec(e.code);
   if (digit) {
@@ -1302,6 +1305,7 @@ function handleHotkey(e) {
     }
     case 'KeyR': if (v) renamePrompt(v.id); return true;
     case 'KeyF': if (v) openSearch(v); return true;
+    case 'KeyE': if (v) api.openDir(v.id); return true;
     case 'KeyD': if (v) toggleDiff(v.id); return true;
     case 'KeyH': toggleToolbar(); return true;
     case 'KeyC': if (v && v.term.hasSelection()) { api.clipboardWrite(v.term.getSelection()); v.term.clearSelection(); } return true;

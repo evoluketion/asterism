@@ -4,7 +4,7 @@ const path = require('path');
 const { app, BrowserWindow, ipcMain, dialog, Notification, clipboard, shell: eShell, Menu } = require('electron');
 const { Store, newProjectId } = require('./store');
 const { createServer } = require('./server');
-const { PaneManager } = require('./panes');
+const { PaneManager, isDir } = require('./panes');
 const { createToolHandler } = require('./mcp-tools');
 const { detectVariant } = require('./variant');
 
@@ -193,6 +193,15 @@ function registerIpc() {
   handle('clipboard:read', () => clipboard.readText());
   listen('clipboard:write', (_e, text) => clipboard.writeText(String(text)));
   listen('open:external', (_e, url) => { if (/^https?:\/\//.test(url)) eShell.openExternal(url); });
+  // The folder comes from the pane itself, so the renderer can only open folders panes are in.
+  listen('open:dir', async (_e, id) => {
+    const pane = manager.get(id);
+    if (!pane) return;
+    const dir = pane.status.claudeCwd || pane.cwd;
+    if (!isDir(dir)) return;
+    const err = await eShell.openPath(dir);
+    if (err) console.error(`open folder ${dir}: ${err}`);
+  });
   listen('screen:reply', (_e, reqId, text) => {
     const cb = screenRequests.get(reqId);
     if (cb) { screenRequests.delete(reqId); cb(String(text)); }
