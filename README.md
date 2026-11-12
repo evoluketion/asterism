@@ -125,6 +125,7 @@ name is saved with the project. Clear the name to go back to the folder name.
 | `Ctrl+Shift+L` | Cycle layout |
 | `Ctrl+Shift+R` | Rename pane |
 | `Ctrl+Shift+F` | Search scrollback |
+| `Ctrl+Shift+D` | Git diff of the repo the pane is working in (the `±` button does the same). It opens over the whole window; ⛶ puts it back into the pane |
 | `Ctrl+Shift+C` / `V`, right-click | Copy / paste |
 | `Ctrl+Shift+=` / `-` | Font size |
 | `Shift+Enter` | Newline in the Claude prompt |
