@@ -19,6 +19,7 @@ const DEFAULTS = {
     archiveCompleted: false,
     summaryPrompt: '',   // empty: the built-in prompt
     summaryModel: '',    // empty: Claude's own default model
+    prMergeMethod: 'merge', // how the PR panel merges: merge, squash or rebase
   },
   // id -> { id, name, dir, layout }. The layout (panes, tree, preset) is saved as you work.
   projects: {},
