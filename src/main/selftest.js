@@ -430,12 +430,12 @@ async function run({ app, win, manager, store }) {
       const width = () => js(`[${box}.getBoundingClientRect().width, window.innerWidth]`);
       const [w1, win1] = await width();
       check('the diff opens inside its pane', w1 < win1 / 2, [w1, win1]);
-      await js(`${box}.querySelector('.diff-expand').click()`);
+      await js(`${box}.querySelector('.ov-expand').click()`);
       await sleep(200);
       const [w2, win2] = await width();
       check('⛶ expands it over the whole window', w2 > win2 - 80, [w2, win2]);
       await shot('11-diff-expanded.png');
-      await js(`${box}.querySelector('.diff-expand').click()`);
+      await js(`${box}.querySelector('.ov-expand').click()`);
       await sleep(200);
       const [w3, win3] = await width();
       check('⛶ again puts it back into the pane', w3 < win3 / 2, [w3, win3]);
@@ -445,7 +445,7 @@ async function run({ app, win, manager, store }) {
       await js(`${box}.querySelector('.diff-file').click()`);
       check('clicking a file header folds it; the file list unfolds it', fold1 && !(await folded()), fold1);
       await shot('12-diff-in-pane.png');
-      await js(`${box}.querySelector('.diff-expand').click()`);
+      await js(`${box}.querySelector('.ov-expand').click()`);
       await js(`${box}.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
       await sleep(150);
       check('Esc closes the diff', await js(`${box}.classList.contains('hidden')`));

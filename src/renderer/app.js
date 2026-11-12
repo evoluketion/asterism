@@ -94,16 +94,7 @@ function createView(snap) {
     </div>
     <div class="pane-term"></div>
     <div class="pane-search hidden"><input placeholder="Find in scrollback  (Enter / Shift+Enter, Esc)" spellcheck="false"><span class="pane-search-count"></span></div>
-    <div class="pane-diff hidden" tabindex="-1">
-      <div class="diff-head">
-        <span class="diff-title"></span>
-        <span class="diff-sum"></span>
-        <button class="pane-btn diff-refresh" title="Refresh">⟳</button>
-        <button class="pane-btn diff-expand" title="Expand to full window">⛶</button>
-        <button class="pane-btn diff-close" title="Close (Esc)">✕</button>
-      </div>
-      <div class="diff-body"></div>
-    </div>`;
+    ${overlayHtml('pane-diff', '<span class="diff-sum"></span>')}`;
   const bar = el.querySelector('.pane-bar');
   const termEl = el.querySelector('.pane-term');
 
@@ -156,7 +147,7 @@ function createView(snap) {
 
   bar.querySelector('.restart').addEventListener('click', e => { e.stopPropagation(); restartPane(view.id); });
   wireSearch(view);
-  wireDiff(view);
+  wireOverlay(view, el.querySelector('.pane-diff'), loadDiff);
   bar.querySelector('.diff').addEventListener('click', e => { e.stopPropagation(); toggleDiff(view.id); });
   bar.querySelector('.close').addEventListener('click', e => { e.stopPropagation(); closePane(view.id); });
   bar.querySelector('.zoom').addEventListener('click', e => { e.stopPropagation(); toggleZoom(view.id); });
@@ -341,84 +332,99 @@ function closeSearch(view) {
   view.term.focus();
 }
 
-function wireDiff(view) {
-  const box = view.el.querySelector('.pane-diff');
-  box.querySelector('.diff-close').addEventListener('click', () => closeDiff(view.id));
-  box.querySelector('.diff-refresh').addEventListener('click', () => loadDiff(view));
-  box.querySelector('.diff-expand').addEventListener('click', () => {
-    setDiffExpanded(box, !box.classList.contains('expanded'));
+/** A panel that opens inset over a pane, with refresh, expand-to-window and close. `extra` goes in its header. */
+function overlayHtml(cls, extra = '') {
+  return `<div class="pane-overlay ${cls} hidden" tabindex="-1">
+      <div class="ov-head">
+        <span class="ov-title"></span>
+        ${extra}
+        <button class="pane-btn ov-refresh" title="Refresh">⟳</button>
+        <button class="pane-btn ov-expand" title="Expand to full window">⛶</button>
+        <button class="pane-btn ov-close" title="Close (Esc)">✕</button>
+      </div>
+      <div class="ov-body"></div>
+    </div>`;
+}
+
+function wireOverlay(view, box, load) {
+  box.querySelector('.ov-close').addEventListener('click', () => closeOverlay(view, box));
+  box.querySelector('.ov-refresh').addEventListener('click', () => load(view));
+  box.querySelector('.ov-expand').addEventListener('click', () => {
+    setOverlayExpanded(box, !box.classList.contains('expanded'));
     box.focus();
   });
   box.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeDiff(view.id); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeOverlay(view, box); }
   });
 }
 
-function setDiffExpanded(box, on) {
-  // Expanded diffs all sit in the same spot, so only one may be expanded at a time.
-  if (on) for (const other of document.querySelectorAll('.pane-diff.expanded')) if (other !== box) setDiffExpanded(other, false);
+function setOverlayExpanded(box, on) {
+  // Expanded panels all sit in the same spot, so only one may be expanded at a time.
+  if (on) for (const other of document.querySelectorAll('.pane-overlay.expanded')) if (other !== box) setOverlayExpanded(other, false);
   box.classList.toggle('expanded', on);
-  box.querySelector('.diff-expand').title = on ? 'Back into the pane' : 'Expand to full window';
+  box.querySelector('.ov-expand').title = on ? 'Back into the pane' : 'Expand to full window';
+}
+
+function toggleOverlay(view, box, load) {
+  if (box.classList.contains('hidden')) openOverlay(view, box, load);
+  else closeOverlay(view, box);
+}
+
+function openOverlay(view, box, load) {
+  // One panel per pane: they share the same inset.
+  for (const other of view.el.querySelectorAll('.pane-overlay')) if (other !== box) { other.classList.add('hidden'); setOverlayExpanded(other, false); }
+  box.classList.remove('hidden');
+  setOverlayExpanded(box, false);
+  box.focus();
+  load(view);
+}
+
+function closeOverlay(view, box) {
+  box.classList.add('hidden');
+  setOverlayExpanded(box, false);
+  focusPane(view.id);
+}
+
+function overlayNote(text) {
+  const n = document.createElement('div');
+  n.className = 'ov-note';
+  n.textContent = text;
+  return n;
 }
 
 function toggleDiff(id = S.focused) {
   const view = S.panes.get(id);
-  if (!view) return;
-  if (view.el.querySelector('.pane-diff').classList.contains('hidden')) openDiff(view);
-  else closeDiff(id);
-}
-
-function openDiff(view) {
-  const box = view.el.querySelector('.pane-diff');
-  box.classList.remove('hidden');
-  setDiffExpanded(box, false);
-  box.querySelector('.diff-body').style.fontFamily = S.settings.fontFamily || DEFAULT_FONT;
-  box.focus();
-  loadDiff(view);
-}
-
-function closeDiff(id) {
-  const view = S.panes.get(id);
-  if (!view) return;
-  const box = view.el.querySelector('.pane-diff');
-  box.classList.add('hidden');
-  focusPane(id);
+  if (view) toggleOverlay(view, view.el.querySelector('.pane-diff'), loadDiff);
 }
 
 async function loadDiff(view) {
   const box = view.el.querySelector('.pane-diff');
-  const body = box.querySelector('.diff-body');
+  const body = box.querySelector('.ov-body');
+  body.style.fontFamily = S.settings.fontFamily || DEFAULT_FONT;
   // A slow diff that finishes after a newer request must not overwrite it.
   const token = view.diffToken = (view.diffToken || 0) + 1;
-  body.replaceChildren(diffNote('Loading…'));
+  body.replaceChildren(overlayNote('Loading…'));
   let d;
   try { d = await api.diff(view.id); } catch (err) { d = { error: String(err && err.message || err) }; }
   if (token !== view.diffToken || !S.panes.has(view.id)) return;
   renderDiff(box, d);
 }
 
-function diffNote(text) {
-  const n = document.createElement('div');
-  n.className = 'diff-note';
-  n.textContent = text;
-  return n;
-}
-
 function renderDiff(box, d) {
-  const body = box.querySelector('.diff-body');
-  const title = box.querySelector('.diff-title');
+  const body = box.querySelector('.ov-body');
+  const title = box.querySelector('.ov-title');
   const sum = box.querySelector('.diff-sum');
   body.replaceChildren();
   sum.textContent = '';
-  if (!d || d.error) { title.textContent = 'Git diff'; body.append(diffNote(`Could not read the diff: ${d ? d.error : 'pane is gone'}`)); return; }
-  if (!d.root) { title.textContent = d.cwd || ''; body.append(diffNote('Not a git repository.')); return; }
+  if (!d || d.error) { title.textContent = 'Git diff'; body.append(overlayNote(`Could not read the diff: ${d ? d.error : 'pane is gone'}`)); return; }
+  if (!d.root) { title.textContent = d.cwd || ''; body.append(overlayNote('Not a git repository.')); return; }
 
   title.textContent = `${d.branch || '(detached)'} · ${d.root}`;
   title.title = d.cwd && d.cwd !== d.root ? `${d.root}\npane folder: ${d.cwd}` : d.root;
   const added = d.files.reduce((n, f) => n + (f.added || 0), 0);
   const removed = d.files.reduce((n, f) => n + (f.removed || 0), 0);
   sum.textContent = `${d.files.length} file${d.files.length === 1 ? '' : 's'}  +${added} −${removed}${d.untracked.length ? `  · ${d.untracked.length} untracked` : ''}`;
-  if (!d.files.length && !d.untracked.length) { body.append(diffNote('No changes against HEAD.')); return; }
+  if (!d.files.length && !d.untracked.length) { body.append(overlayNote('No changes against HEAD.')); return; }
 
   const list = document.createElement('div');
   list.className = 'diff-files';
@@ -488,7 +494,7 @@ function renderDiff(box, d) {
     if (sec) row.addEventListener('click', () => { sec.classList.remove('collapsed'); sec.scrollIntoView({ block: 'start' }); });
     else row.disabled = true;
   });
-  if (d.truncated) body.append(diffNote('Diff truncated — it is too large to show in full.'));
+  if (d.truncated) body.append(overlayNote('Diff truncated — it is too large to show in full.'));
 }
 
 // ---------- Layout rendering ----------
