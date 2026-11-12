@@ -119,6 +119,19 @@ name is saved with the project. Clear the name to go back to the folder name.
 To open a pane's folder in your file manager, click the folder in its title bar or press
 `Ctrl+Shift+E`. A plain shell pane opens the folder it started in, even after a `cd`.
 
+When a Claude pane's work is finished, click **✓** in its title bar instead of **✕**. ✕ closes the
+pane without a trace. ✓ closes it and records it in the project's completed history. By default
+that record is just the pane's name and folder. Turn on **Summarise completed panes with Claude**
+in ⚙ and Claude also writes a handoff summary of the conversation in the background. This uses
+tokens. The summary prompt and model can be changed in ⚙ as well. The summary is made from a fork
+of the conversation, so the original session is left as it was.
+
+Open the history from **✓ Completed panes** in the projects menu or on the empty screen. **Reopen**
+starts a new Claude session in the same folder with the summary as context. Claude reads it and
+waits for your first prompt. The entry stays in the history afterwards. Entries recorded without a
+summary only show the name and folder and can't be reopened. **✕** removes an entry, and deleting
+a project removes its entries.
+
 ### Shortcuts
 
 | Shortcut | Action |
