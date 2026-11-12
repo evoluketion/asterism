@@ -692,7 +692,7 @@ function updateWaiting() {
   const reveal = $('#toolbar-reveal');
   reveal.classList.toggle('waiting', waiting.length > 0 && !urgent);
   reveal.classList.toggle('urgent', urgent);
-  api.setWaiting(waiting.length, waiting.length ? `(${waiting.length}) Asterism` : 'Asterism');
+  api.setWaiting(waiting.length, waiting.length ? `(${waiting.length}) ${S.appName}` : S.appName);
 }
 
 // ---------- Attention: sound + desktop notification ----------
@@ -869,7 +869,7 @@ function updateProjectUi() {
   b.textContent = p ? `${p.name} ▾` : 'No project ▾';
   b.title = p ? `Project ${p.name}: new Claude panes start in ${p.dir}` : 'Projects';
   b.classList.toggle('in-project', !!p);
-  document.title = p ? `${p.name} · Asterism` : 'Asterism';
+  document.title = p ? `${p.name} · ${S.appName}` : S.appName;
 }
 
 function busyCount() {
@@ -937,7 +937,7 @@ function reopenLast() {
 
 function renderEmpty() {
   const p = activeProject();
-  $('#empty h1').textContent = p ? p.name : 'Asterism';
+  $('#empty h1').textContent = p ? p.name : S.appName;
   $('#empty-sub').textContent = p ? `${shortPath(p.dir)} · no panes open yet` : 'Tiled Claude Code sessions with a status light on every pane.';
   $('#empty-hint').textContent = p
     ? 'Ctrl+Shift+N new Claude pane here · Ctrl+Shift+O pick another folder · Ctrl+Shift+L cycle layout'
@@ -1165,7 +1165,7 @@ function settingsModal() {
     <label class="check"><input id="set-sound" type="checkbox" ${st.sound ? 'checked' : ''}> Sound when a pane you aren't looking at needs you</label>
     <h2 style="margin-top:8px">Shortcuts</h2>
     <div class="keys">${SHORTCUTS.map(([k, d]) => `<kbd>${k}</kbd><span>${d}</span>`).join('')}</div>
-    <div class="actions"><span class="muted" style="margin-right:auto;align-self:center">Asterism v${esc(S.version)}</span><button id="set-cancel">Cancel</button><button id="set-save" class="primary">Save</button></div>`;
+    <div class="actions"><span class="muted" style="margin-right:auto;align-self:center">${esc(S.appName)} v${esc(S.version)}</span><button id="set-cancel">Cancel</button><button id="set-save" class="primary">Save</button></div>`;
   $('#modal-backdrop').classList.remove('hidden');
   const q = s => m.querySelector(s);
   // Theme cards preview live; Cancel / Escape put the saved theme back.
@@ -1368,7 +1368,9 @@ setInterval(() => { for (const v of S.panes.values()) updateBar(v); updateWaitin
   Object.assign(S, {
     settings: init.settings, projects: init.projects || {}, lastSession: init.lastSession,
     recentDirs: init.recentDirs || [], home: init.home, version: init.version || '',
+    appName: init.appName || 'Asterism',
   });
+  $('.brand').textContent = S.appName;
   buildToolbar();
   wireToolbarPeek();
   applyTheme();
