@@ -42,6 +42,9 @@ real terminal and puts every session on screen at once, built for a big monitor.
   `read_pane_screen`. Panes can't type into each other.
 - **Git at a glance.** Each title bar shows the pane's folder and git branch, and `±` opens the
   git diff of the repo the pane is working in, so every worktree shows its own changes.
+- **Pull requests without leaving the pane.** `⇄` lists the open pull requests for the pane's
+  branch, or every open one in the repo. Each shows draft, review and CI status. **Merge…** takes a
+  PR out of draft, approves it and merges it in one go. This uses the [GitHub CLI](https://cli.github.com).
 - **Layouts:** grid (four panes = four corners), columns, rows, main + stack and main + row. Drag
   dividers to resize, and drag title bars to swap panes.
 - **Projects:** a project is a name, a folder and its panes. Inside a project, `Ctrl+Shift+N` opens
@@ -121,6 +124,16 @@ name is saved with the project. Clear the name to go back to the folder name.
 To open a pane's folder in your file manager, click the folder in its title bar or press
 `Ctrl+Shift+E`. A plain shell pane opens the folder it started in, even after a `cd`.
 
+To land a pull request, click `⇄` in a pane's title bar or press `Ctrl+Shift+P`. The panel opens
+inside the pane on **This branch**, which lists the open PRs from the branch the pane is on.
+**All open** lists every open PR in the repo. Click a PR's number or title to open it on GitHub.
+**Merge…** shows the steps it will run and asks first. It marks a draft ready for review, approves
+the PR, then merges it with the method set in ⚙. GitHub doesn't let you approve your own pull request, so that
+step is skipped for yours. If anything was pushed to the PR after the list loaded, nothing runs;
+refresh and look again. The branch is not deleted, because a worktree may still have it checked
+out. If a step fails, for example because of branch protection or failing checks, the panel shows
+GitHub's message and stops there.
+
 When a Claude pane's work is finished, click **✓** in its title bar instead of **✕**. ✕ closes the
 pane without a trace. ✓ closes it and records it in the project's completed history. By default
 that record is just the pane's name and folder. Turn on **Summarise completed panes with Claude**
@@ -152,6 +165,7 @@ a project removes its entries.
 | `Ctrl+Shift+F` | Search scrollback |
 | `Ctrl+Shift+E` | Open the pane's folder in the file manager |
 | `Ctrl+Shift+D` | Git diff of the repo the pane is working in (the `±` button does the same). It opens inside the pane; ⛶ expands it over the whole window and back |
+| `Ctrl+Shift+P` | Open pull requests for the pane's repo (the `⇄` button does the same), with Merge… on each |
 | `Ctrl+Shift+C` / `V`, right-click | Copy / paste |
 | `Ctrl+Shift+=` / `-` | Font size |
 | `Shift+Enter` | Newline in the Claude prompt |
@@ -182,6 +196,7 @@ Everything in ⚙ Settings:
 | Shell | The shell panes start in. Blank uses `$SHELL`, or `pwsh` (falling back to Windows PowerShell) on Windows. |
 | Font size / Font family | Terminal font. A blank family uses the built-in default. |
 | Background work timeout | Minutes of hook silence before a pane with background work running is marked ready. The default is 10, and 0 waits indefinitely. |
+| Pull request merge method | How **Merge…** in the pull request panel merges: a merge commit (the default), squash or rebase. |
 | Desktop notification | Notify when a pane needs you and Asterism isn't focused. On by default. |
 | Reopen the last project at startup | Restore the last project's panes and resume their conversations when Asterism opens. Off by default. |
 | Sound | Play a sound when a pane you aren't looking at needs you. On by default. |
@@ -215,6 +230,10 @@ More detail is in [docs/DESIGN.md](docs/DESIGN.md).
 
 ## Troubleshooting
 
+**The pull request panel says gh is missing or not logged in.** Install the
+[GitHub CLI](https://cli.github.com) and run `gh auth login` once. Asterism finds `gh` on the same
+PATH your shell uses. A repo with several GitHub remotes may also need `gh repo set-default`.
+
 **A pane stays on dashed amber ("Check pane").** Look at the pane first; Claude may be showing a
 first-run prompt. If nothing is showing, no hook events are reaching Asterism. Hooks may be turned
 off by `disableAllHooks` or `allowManagedHooksOnly`, or an `allowedHttpHookUrls` policy may be
@@ -227,7 +246,7 @@ across automatically the first time Asterism starts.
 
 ```bash
 npm test     # unit tests: layout, status rules, server and MCP, settings store, pane names,
-             # session resume, git, completed-pane archive, shell PATH, issue-build variants
+             # session resume, git, pull requests, completed-pane archive, shell PATH, issue-build variants
 npm run icon # re-render build/icon.png and src/assets/icon.png from build/icon.svg
 
 # The whole app with stand-in Claude panes (test/fake-claude.js fires hooks like Claude Code does)
@@ -272,6 +291,7 @@ src/
     mcp-tools.js      list_panes, get_pane_transcript, read_pane_screen
     transcript.js     reading Claude's conversation transcripts
     git.js            branch and diff for a pane's folder
+    github.js         pull requests via the gh CLI: list, ready, approve, merge
     archive.js        completed-pane history and handoff summaries
     variant.js        issue-build labelling from the branch name
     store.js          settings, projects and completed history

@@ -88,13 +88,15 @@ function createView(snap) {
       <span class="pane-chip"></span>
       <button class="pane-btn restart hidden" title="Start Claude again, resuming this conversation">↻ Claude</button>
       <button class="pane-btn diff" title="Git diff (Ctrl+Shift+D)">±</button>
+      <button class="pane-btn prs" title="Pull requests (Ctrl+Shift+P)">⇄</button>
       <button class="pane-btn done" title="Mark as completed: close the pane and keep it in the completed history">✓</button>
       <button class="pane-btn zoom" title="Zoom (Ctrl+Shift+Enter)">⤢</button>
       <button class="pane-btn close" title="Close (Ctrl+Shift+W)">✕</button>
     </div>
     <div class="pane-term"></div>
     <div class="pane-search hidden"><input placeholder="Find in scrollback  (Enter / Shift+Enter, Esc)" spellcheck="false"><span class="pane-search-count"></span></div>
-    ${overlayHtml('pane-diff', '<span class="diff-sum"></span>')}`;
+    ${overlayHtml('pane-diff', '<span class="diff-sum"></span>')}
+    ${overlayHtml('pane-prs', '<span class="pr-scope"><button class="pr-scope-btn" data-scope="branch" title="Open pull requests from this pane\'s branch">This branch</button><button class="pr-scope-btn" data-scope="all" title="Every open pull request in the repo">All open</button></span>')}`;
   const bar = el.querySelector('.pane-bar');
   const termEl = el.querySelector('.pane-term');
 
@@ -118,7 +120,7 @@ function createView(snap) {
   const view = {
     id: snap.id, el, bar, termEl, term, fit, search, status: snap, opened: false, exited: false, restarting: false,
     launch: { kind: snap.kind, name: snap.name, cwd: snap.cwd, args: snap.args || [] },
-    lastCols: 0, lastRows: 0,
+    lastCols: 0, lastRows: 0, prScope: 'branch',
   };
 
   term.onData(data => {
@@ -149,6 +151,12 @@ function createView(snap) {
   wireSearch(view);
   wireOverlay(view, el.querySelector('.pane-diff'), loadDiff);
   bar.querySelector('.diff').addEventListener('click', e => { e.stopPropagation(); toggleDiff(view.id); });
+  const prBox = el.querySelector('.pane-prs');
+  wireOverlay(view, prBox, loadPrs);
+  for (const b of prBox.querySelectorAll('.pr-scope-btn')) {
+    b.addEventListener('click', () => { view.prScope = b.dataset.scope; view.prResult = null; loadPrs(view); prBox.focus(); });
+  }
+  bar.querySelector('.prs').addEventListener('click', e => { e.stopPropagation(); togglePrs(view.id); });
   bar.querySelector('.close').addEventListener('click', e => { e.stopPropagation(); closePane(view.id); });
   bar.querySelector('.zoom').addEventListener('click', e => { e.stopPropagation(); toggleZoom(view.id); });
   const metaEl = bar.querySelector('.pane-meta');
@@ -495,6 +503,162 @@ function renderDiff(box, d) {
     else row.disabled = true;
   });
   if (d.truncated) body.append(overlayNote('Diff truncated — it is too large to show in full.'));
+}
+
+// ---------- Pull requests ----------
+
+const PR_STEP = { ready: 'Mark ready for review', approve: 'Approve on GitHub', merge: 'Merge' };
+const MERGE_METHOD_LABEL = { merge: 'merge commit', squash: 'squash', rebase: 'rebase' };
+const PR_HINT = {
+  'no-gh': 'Install the GitHub CLI from https://cli.github.com, run "gh auth login", then refresh.',
+  auth: 'Run "gh auth login" in a shell pane, then refresh.',
+  'ambiguous-remote': 'Run "gh repo set-default" in this repo to choose which remote to use, then refresh.',
+};
+
+function togglePrs(id = S.focused) {
+  const view = S.panes.get(id);
+  if (!view) return;
+  const box = view.el.querySelector('.pane-prs');
+  if (box.classList.contains('hidden')) view.prResult = null;
+  toggleOverlay(view, box, loadPrs);
+}
+
+async function loadPrs(view) {
+  const box = view.el.querySelector('.pane-prs');
+  const scope = view.prScope || 'branch';
+  for (const b of box.querySelectorAll('.pr-scope-btn')) b.classList.toggle('active', b.dataset.scope === scope);
+  const body = box.querySelector('.ov-body');
+  const token = view.prToken = (view.prToken || 0) + 1;
+  body.replaceChildren(...(view.prResult ? [prResultEl(view)] : []), overlayNote('Loading…'));
+  let d;
+  try { d = await api.prs(view.id, scope); } catch (err) { d = { error: true, kind: 'other', message: String(err && err.message || err) }; }
+  if (token !== view.prToken || !S.panes.has(view.id)) return;
+  renderPrs(view, box, d);
+}
+
+function mk(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+function prBadge(text, tone, title) {
+  const b = mk('span', `pr-badge${tone ? ' ' + tone : ''}`, text);
+  if (title) b.title = title;
+  return b;
+}
+
+function renderPrs(view, box, d) {
+  const body = box.querySelector('.ov-body');
+  const title = box.querySelector('.ov-title');
+  body.replaceChildren();
+  if (view.prResult) body.append(prResultEl(view));
+  title.title = (d && (d.root || d.cwd)) || '';
+  if (!d || d.error) {
+    title.textContent = (d && d.repo && d.repo.name) || (d && (d.root || d.cwd)) || 'Pull requests';
+    const note = overlayNote(d ? d.message || 'Could not load pull requests.' : 'The pane is gone.');
+    note.dataset.kind = (d && d.kind) || 'other';
+    body.append(note);
+    if (d && PR_HINT[d.kind]) body.append(overlayNote(PR_HINT[d.kind]));
+    return;
+  }
+  title.textContent = d.scope === 'branch' ? `${d.repo.name} · ${d.branch || '(detached)'}` : d.repo.name;
+  if (d.scope === 'branch' && !d.branch) { body.append(overlayNote('The repo is on a detached HEAD, so there is no branch to match. Try All open.')); return; }
+  if (!d.prs.length) {
+    const note = overlayNote(d.scope === 'branch' ? `No open pull request from ${d.branch}.` : 'No open pull requests.');
+    note.dataset.kind = 'empty';
+    body.append(note);
+    return;
+  }
+  const list = mk('div', 'pr-list');
+  for (const pr of d.prs) list.append(prRow(view, pr));
+  body.append(list);
+  if (d.limited) body.append(overlayNote(`Showing the first ${d.prs.length}.`));
+}
+
+function prRow(view, pr) {
+  const row = mk('div', 'pr-row');
+  row.dataset.number = pr.number;
+  const open = e => { e.stopPropagation(); api.openExternal(pr.url); };
+  const line1 = mk('div', 'pr-line1');
+  const num = mk('button', 'pr-link pr-num', `#${pr.number}`);
+  const name = mk('button', 'pr-link pr-title', pr.title);
+  num.title = name.title = `Open on GitHub\n${pr.url}`;
+  num.onclick = name.onclick = open;
+  line1.append(num, name);
+  if (pr.draft) line1.append(prBadge('Draft', 'muted'));
+
+  const line2 = mk('div', 'pr-line2');
+  line2.append(mk('span', 'pr-author', pr.author || 'unknown'));
+  const refs = mk('span', 'pr-ref', `${pr.headRef} → ${pr.baseRef}`);
+  refs.title = `${pr.headRef} into ${pr.baseRef}`;
+  line2.append(refs);
+  if (pr.review === 'APPROVED') line2.append(prBadge('Approved', 'good'));
+  else if (pr.review === 'CHANGES_REQUESTED') line2.append(prBadge('Changes requested', 'bad'));
+  else if (pr.review === 'REVIEW_REQUIRED') line2.append(prBadge('Review required', 'warn'));
+  const c = pr.checks;
+  if (c.state === 'success') line2.append(prBadge(`✓ ${c.passed} check${c.passed === 1 ? '' : 's'}`, 'good'));
+  else if (c.state === 'failure') line2.append(prBadge(`✗ ${c.failed} failing`, 'bad', `${c.passed} passed, ${c.failed} failed, ${c.pending} pending`));
+  else if (c.state === 'pending') line2.append(prBadge(`● ${c.pending} pending`, 'warn', `${c.passed} passed, ${c.pending} pending`));
+  const conflict = pr.mergeable === 'CONFLICTING';
+  if (conflict) line2.append(prBadge('Conflicts', 'bad', 'Merge conflicts with the base branch'));
+  else if (pr.mergeState === 'BEHIND') line2.append(prBadge('Behind base', 'warn'));
+  else if (pr.mergeState === 'BLOCKED') line2.append(prBadge('Blocked', 'warn', 'Branch protection is blocking the merge (reviews or required checks)'));
+  if (pr.additions !== null) {
+    const n = mk('span', 'pr-n');
+    n.append(mk('span', 'add', `+${pr.additions}`), ' ', mk('span', 'del', `−${pr.deletions}`));
+    line2.append(n);
+  }
+  if (pr.updatedAt) line2.append(mk('span', 'pr-age', `updated ${ago(Date.now() - Date.parse(pr.updatedAt))} ago`));
+  const merge = mk('button', 'pr-merge', 'Merge…');
+  merge.title = conflict ? 'Resolve the merge conflicts first' : pr.plan.map(prStepText).join('\n');
+  merge.disabled = conflict || view.prLanding === pr.number;
+  if (view.prLanding === pr.number) merge.textContent = 'Merging…';
+  merge.onclick = e => { e.stopPropagation(); landPrFlow(view, pr, merge); };
+  line2.append(merge);
+  row.append(line1, line2);
+  return row;
+}
+
+function prStepText(s) {
+  return s.skip ? `${PR_STEP[s.step]}: skipped. ${s.skip}` : PR_STEP[s.step];
+}
+
+async function landPrFlow(view, pr, button) {
+  if (view.prLanding) return;
+  const method = S.settings.prMergeMethod || 'merge';
+  const steps = pr.plan.map(s => `  • ${prStepText(s)}`).join('\n');
+  if (!confirm(`Merge #${pr.number} "${pr.title}" into ${pr.baseRef}?\n\n${steps}\n\nMerge method: ${MERGE_METHOD_LABEL[method] || method} (change it in ⚙ Settings). The branch is kept.`)) return;
+  view.prLanding = pr.number;
+  button.disabled = true;
+  button.textContent = 'Merging…';
+  let res;
+  try { res = await api.landPr(view.id, pr.number, pr.headOid); } catch (err) { res = { ok: false, error: true, message: String(err && err.message || err), steps: [] }; }
+  view.prLanding = null;
+  if (!S.panes.has(view.id)) return;
+  view.prResult = { pr, res: res || { ok: false, error: true, message: 'The pane is gone.', steps: [] } };
+  if (!view.el.querySelector('.pane-prs').classList.contains('hidden')) loadPrs(view);
+  if (res && res.ok) toast(`Merged #${pr.number} ${pr.title}`, { info: true });
+}
+
+function prResultEl(view) {
+  const { pr, res } = view.prResult;
+  const box = mk('div', `pr-result ${res.ok ? 'ok' : 'fail'}`);
+  const head = mk('div', 'pr-result-head');
+  head.append(mk('span', 'pr-result-title', res.ok ? `Merged #${pr.number} ${pr.title}` : `Couldn't merge #${pr.number} ${pr.title}`));
+  const x = mk('button', 'pane-btn', '✕');
+  x.title = 'Dismiss';
+  x.onclick = () => { view.prResult = null; box.remove(); };
+  head.append(x);
+  box.append(head);
+  if (res.error && res.message) box.append(mk('div', 'pr-step fail', res.message));
+  for (const s of res.steps || []) {
+    const mark = s.skipped ? '–' : s.ok ? '✓' : '✗';
+    const line = mk('div', `pr-step ${s.skipped ? 'skipped' : s.ok ? 'ok' : 'fail'}`, `${mark} ${PR_STEP[s.step] || s.step}${s.message ? ` — ${s.message}` : ''}`);
+    box.append(line);
+  }
+  return box;
 }
 
 // ---------- Layout rendering ----------
@@ -1240,6 +1404,7 @@ const SHORTCUTS = [
   ['Ctrl+Shift+F', 'Search the focused pane\'s scrollback'],
   ['Ctrl+Shift+E', 'Open the focused pane\'s folder in the file manager'],
   ['Ctrl+Shift+D', 'Show the focused pane\'s git diff (Esc closes)'],
+  ['Ctrl+Shift+P', 'Show the focused pane\'s pull requests, and merge them (Esc closes)'],
   ['Ctrl+Shift+C / V', 'Copy selection / paste (right-click does the same)'],
   ['Ctrl+Shift+= / -', 'Font size'],
   ['Shift+Enter', 'Newline in the Claude prompt'],
@@ -1267,6 +1432,7 @@ function settingsModal() {
     </div>
     <div class="row">
       <div style="flex:1"><label>Background work timeout (minutes, 0 = never)</label><input id="set-bgquiet" type="number" min="0" max="1440" value="${st.backgroundQuietMin ?? 10}"></div>
+      <div style="flex:1"><label>Pull request merge method</label><select id="set-merge">${Object.entries({ merge: 'Merge commit', squash: 'Squash', rebase: 'Rebase' }).map(([v, l]) => `<option value="${v}" ${(st.prMergeMethod || 'merge') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
     </div>
     <label class="check"><input id="set-notify" type="checkbox" ${st.notifyDesktop ? 'checked' : ''}> Desktop notification when a pane needs you and Asterism isn't focused</label>
     <label class="check"><input id="set-reopen" type="checkbox" ${st.reopenLast ? 'checked' : ''}> Reopen the last project at startup, resuming each pane's conversation</label>
@@ -1313,6 +1479,7 @@ function settingsModal() {
       // Saved blank while it matches the built-in prompt, so a newer built-in prompt still applies.
       summaryPrompt: (p => (p === (S.defaults.summaryPrompt || '').trim() ? '' : p))(q('#set-prompt').value.trim()),
       summaryModel: q('#set-model').value.trim(),
+      prMergeMethod: q('#set-merge').value,
     });
     applyFont();
     close();
@@ -1394,7 +1561,7 @@ function handleHotkey(e) {
   if (e.code === 'Tab') { cyclePane(e.shiftKey ? -1 : 1); return true; }
   if (!e.shiftKey) return false;
   // Held-down keys auto-repeat; never let that open, close or re-layout panes repeatedly.
-  if (e.repeat && ['KeyN', 'KeyO', 'KeyT', 'KeyW', 'KeyL', 'Enter', 'KeyR', 'KeyF', 'KeyH', 'KeyE', 'KeyD'].includes(e.code)) return true;
+  if (e.repeat && ['KeyN', 'KeyO', 'KeyT', 'KeyW', 'KeyL', 'Enter', 'KeyR', 'KeyF', 'KeyH', 'KeyE', 'KeyD', 'KeyP'].includes(e.code)) return true;
   const v = S.focused && S.panes.get(S.focused);
   const digit = /^Digit([1-9])$/.exec(e.code);
   if (digit) {
@@ -1422,6 +1589,7 @@ function handleHotkey(e) {
     case 'KeyF': if (v) openSearch(v); return true;
     case 'KeyE': if (v) api.openDir(v.id); return true;
     case 'KeyD': if (v) toggleDiff(v.id); return true;
+    case 'KeyP': if (v) togglePrs(v.id); return true;
     case 'KeyH': toggleToolbar(); return true;
     case 'KeyC': if (v && v.term.hasSelection()) { api.clipboardWrite(v.term.getSelection()); v.term.clearSelection(); } return true;
     case 'KeyV': if (v) api.clipboardRead().then(t => { if (t) v.term.paste(t); }); return true;
@@ -1508,7 +1676,7 @@ setInterval(() => { for (const v of S.panes.values()) updateBar(v); updateWaitin
   if (S.settings.reopenLast && !init.test) reopenLast();
   if (init.test) {
     window.__asterismTest = {
-      newPane, newPanePopover, applyTheme, settingsModal, setPreset, focusPane, setPeek, closePane, jumpToWaiting, toggleZoom, toggleDiff, openLayout, serializeLayout,
+      newPane, newPanePopover, applyTheme, settingsModal, setPreset, focusPane, setPeek, closePane, jumpToWaiting, toggleZoom, toggleDiff, togglePrs, openLayout, serializeLayout,
       openProject, leaveProject, createProject, projectsPopover, completedModal,
       state: () => ({
         order: L.leafIds(S.tree), focused: S.focused, preset: S.preset, zoomed: S.zoomed, project: S.project,

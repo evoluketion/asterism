@@ -452,6 +452,53 @@ async function run({ app, win, manager, store }) {
       await js(`window.__asterismTest.toggleDiff(${JSON.stringify(dId)})`);
       check('reopening an expanded diff opens it in the pane again', await js(`!${box}.classList.contains('expanded')`));
       await js(`window.__asterismTest.toggleDiff(${JSON.stringify(dId)})`);
+
+      // The PR panel, on the same repo. It has no remote, so this needs neither gh nor the network.
+      const prs = `document.querySelector('.pane[data-id=${JSON.stringify(dId)}] .pane-prs')`;
+      await js(`window.__asterismTest.togglePrs(${JSON.stringify(dId)})`);
+      check('⇄ shows that a repo with no remote has no pull requests', await waitFor(() => js(`!${prs}.classList.contains('hidden') && !!${prs}.querySelector('.ov-note[data-kind="no-remote"]')`), 5000), await js(`${prs}.textContent.slice(0, 300)`));
+      check('…and opening it closes the diff in that pane', await js(`${box}.classList.contains('hidden')`));
+      await js(`${prs}.querySelector('.pr-scope-btn[data-scope="all"]').click()`);
+      check('All open switches the scope', await waitFor(() => js(`${prs}.querySelector('.pr-scope-btn.active').dataset.scope === 'all' && !!${prs}.querySelector('.ov-note[data-kind="no-remote"]')`), 5000));
+
+      // A canned list stands in for gh, to check the rows and the merge flow.
+      const realPrs = manager.prs, realLand = manager.landPr;
+      const pr = (n, over) => ({
+        number: n, title: `Pull request ${n}`, url: `https://github.com/o/r/pull/${n}`, draft: false, author: 'someone',
+        headRef: `feat/${n}-thing`, headOid: `oid${n}`, baseRef: 'main', review: null, additions: 12, deletions: 3,
+        updatedAt: new Date(Date.now() - 3600e3).toISOString(), mergeable: 'MERGEABLE', mergeState: 'CLEAN',
+        checks: { state: 'success', passed: 3, failed: 0, pending: 0 },
+        plan: [{ step: 'approve' }, { step: 'merge' }], ...over,
+      });
+      let listed = [
+        pr(21, { draft: true, review: 'REVIEW_REQUIRED', checks: { state: 'pending', passed: 1, failed: 0, pending: 2 }, plan: [{ step: 'ready' }, { step: 'approve' }, { step: 'merge' }] }),
+        pr(22, { author: 'me', mergeable: 'CONFLICTING', checks: { state: 'failure', passed: 2, failed: 1, pending: 0 }, plan: [{ step: 'approve', skip: 'Your own.' }, { step: 'merge' }] }),
+      ];
+      manager.prs = async (_id, scope) => ({ cwd: repo, root: repo, branch: 'feat/21-thing', scope, viewer: 'me', repo: { name: 'o/r', host: 'github.com', slug: 'github.com/o/r', url: 'https://github.com/o/r' }, prs: listed });
+      let landed = null;
+      manager.landPr = async (_id, number, headOid) => {
+        landed = { number, headOid };
+        listed = listed.filter(p => p.number !== number);
+        return { ok: true, steps: [{ step: 'ready', ok: true, skipped: false, message: '' }, { step: 'approve', ok: true, skipped: false, message: '' }, { step: 'merge', ok: true, skipped: false, message: '' }] };
+      };
+      await js(`${prs}.querySelector('.ov-refresh').click()`);
+      check('the panel lists each pull request', await waitFor(() => js(`${prs}.querySelectorAll('.pr-row').length === 2`), 5000), await js(`${prs}.textContent.slice(0, 300)`));
+      check('…with draft, review, checks and conflict badges', await js(`(() => { const t = ${prs}.textContent; return ['Draft', 'Review required', '2 pending', '1 failing', 'Conflicts', 'feat/21-thing → main'].every(s => t.includes(s)); })()`));
+      check('…and no Merge on a PR with conflicts', await js(`${prs}.querySelector('.pr-row[data-number="22"] .pr-merge').disabled && !${prs}.querySelector('.pr-row[data-number="21"] .pr-merge').disabled`));
+      await shot('13-prs-in-pane.png');
+      await js(`window.__asterismConfirm = window.confirm; window.__asked = ''; window.confirm = q => { window.__asked = q; return true; }; true`);
+      await js(`${prs}.querySelector('.pr-row[data-number="21"] .pr-merge').click()`);
+      const merged = await waitFor(() => js(`!!${prs}.querySelector('.pr-result.ok') && ${prs}.querySelectorAll('.pr-row').length === 1`), 5000);
+      check('Merge… confirms the steps, then lands the PR at the head it showed', merged && landed && landed.number === 21 && landed.headOid === 'oid21', landed);
+      check('…the confirm lists ready, approve and merge', await js(`['Mark ready for review', 'Approve on GitHub', 'Merge method: merge commit'].every(s => window.__asked.includes(s))`), await js('window.__asked'));
+      await shot('14-prs-merged.png');
+      await js(`window.confirm = window.__asterismConfirm; true`);
+      manager.prs = realPrs;
+      manager.landPr = realLand;
+      await js(`${prs}.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+      await sleep(150);
+      check('Esc closes the PR panel', await js(`${prs}.classList.contains('hidden')`));
+
       await js(`window.__asterismTest.closePane(${JSON.stringify(dId)}, { force: true })`);
       await sleep(300);
       fs.rmSync(repo, { recursive: true, force: true });

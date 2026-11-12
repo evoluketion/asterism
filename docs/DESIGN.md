@@ -67,12 +67,21 @@ Drag dividers to resize. Zoom toggles one pane to fill the window.
 - Git diff: `±` / Ctrl+Shift+D overlays the pane with `git diff HEAD` (staged + unstaged, untracked by
   name) for the repo containing the pane's cwd, so worktrees each show their own. Read-only, refreshed on
   demand. Opens inset inside the pane; ⛶ expands it over the whole window (one at a time).
+- Pull requests: `⇄` / Ctrl+Shift+P opens a panel in the same overlay slot as the diff (one panel per pane;
+  both share `overlayHtml` / `wireOverlay`). It lists open PRs for the pane's branch or the whole repo via `gh`
+  (main process, `github.js`). Every call passes `-R host/owner/repo`, resolved once with `gh repo view`, so gh
+  never guesses from local git state, and gh runs with the login-shell PATH and `GH_PROMPT_DISABLED`. A repo
+  with no git remote is answered before gh runs. Merge… runs `gh pr ready` (drafts only), `gh pr review --approve`
+  (skipped for your own PR, which GitHub refuses, or one already approved) and `gh pr merge --<method>
+  --match-head-commit <oid>`. It stops at the first failure. The step list is computed in main and shown in the
+  confirm. The head commit the user saw is re-checked first, so a commit pushed in the meantime is never merged
+  unseen. Branches are never deleted.
 - Toolbar: + Claude pane, + shell pane, layout picker, project menu, waiting counter.
 - Hotkeys (app-level, so they never collide with Claude's TUI):
   Ctrl+Shift+Space jump to longest-waiting pane · Ctrl+Shift+N new Claude pane ·
   Ctrl+Shift+T new shell pane · Ctrl+Shift+W close pane · Ctrl+Shift+Enter zoom ·
   Ctrl+Shift+Arrows move focus · Ctrl+Shift+1..9 focus pane n · Ctrl+Shift+L cycle layout ·
-  Ctrl+Shift+E open the pane's folder · Ctrl+Shift+C / V copy / paste.
+  Ctrl+Shift+E open the pane's folder · Ctrl+Shift+D git diff · Ctrl+Shift+P pull requests · Ctrl+Shift+C / V copy / paste.
 - Shift+Enter sends ESC CR so it inserts a newline in Claude's prompt.
 - Optional desktop notification + sound when a pane needs you and the window is unfocused.
 - Projects: {name, folder, layout}, saved in userData. One project is active per window. Inside it,
