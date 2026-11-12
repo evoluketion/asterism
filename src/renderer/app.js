@@ -433,7 +433,12 @@ function renderDiff(box, d) {
   const removed = d.files.reduce((n, f) => n + (f.removed || 0), 0);
   sum.textContent = `${d.files.length} file${d.files.length === 1 ? '' : 's'}  +${added} −${removed}${d.untracked.length ? `  · ${d.untracked.length} untracked` : ''}`;
   if (!d.files.length && !d.untracked.length) { body.append(overlayNote('No changes against HEAD.')); return; }
+  body.append(...diffContent(d));
+}
 
+/** The file list and foldable patch for a diff of { files, untracked, patch, truncated }. */
+function diffContent(d) {
+  const out = [];
   const list = document.createElement('div');
   list.className = 'diff-files';
   const rows = d.files.map(f => {
@@ -465,7 +470,7 @@ function renderDiff(box, d) {
     row.append(st, name);
     list.append(row);
   }
-  body.append(list);
+  out.push(list);
 
   // numstat and the patch list files in the same order, so the n-th header belongs to the n-th file.
   const pre = document.createElement('div');
@@ -496,13 +501,14 @@ function renderDiff(box, d) {
     else if (line[0] === '-') el.className = 'del';
     target.append(el);
   }
-  body.append(pre);
+  out.push(pre);
   rows.forEach((row, i) => {
     const sec = sections[i];
     if (sec) row.addEventListener('click', () => { sec.classList.remove('collapsed'); sec.scrollIntoView({ block: 'start' }); });
     else row.disabled = true;
   });
-  if (d.truncated) body.append(overlayNote('Diff truncated — it is too large to show in full.'));
+  if (d.truncated) out.push(overlayNote('Diff truncated — it is too large to show in full.'));
+  return out;
 }
 
 // ---------- Pull requests ----------
@@ -611,6 +617,11 @@ function prRow(view, pr) {
     line2.append(n);
   }
   if (pr.updatedAt) line2.append(mk('span', 'pr-age', `updated ${ago(Date.now() - Date.parse(pr.updatedAt))} ago`));
+  const diffOpen = view.prDiffOpen && view.prDiffOpen.has(pr.number);
+  const diffBtn = mk('button', `pr-diff-btn${diffOpen ? ' active' : ''}`, 'Diff');
+  diffBtn.title = 'Show the changes in this pull request';
+  diffBtn.onclick = e => { e.stopPropagation(); togglePrDiff(view, pr, row, diffBtn); };
+  line2.append(diffBtn);
   const merge = mk('button', 'pr-merge', 'Merge…');
   merge.title = conflict ? 'Resolve the merge conflicts first' : pr.plan.map(prStepText).join('\n');
   merge.disabled = conflict || view.prLanding === pr.number;
@@ -618,7 +629,48 @@ function prRow(view, pr) {
   merge.onclick = e => { e.stopPropagation(); landPrFlow(view, pr, merge); };
   line2.append(merge);
   row.append(line1, line2);
+  if (diffOpen) showPrDiff(view, pr, row);
   return row;
+}
+
+function togglePrDiff(view, pr, row, button) {
+  view.prDiffOpen = view.prDiffOpen || new Set();
+  const box = row.querySelector('.pr-diff');
+  if (box) {
+    view.prDiffOpen.delete(pr.number);
+    box.remove();
+    button.classList.remove('active');
+    return;
+  }
+  view.prDiffOpen.add(pr.number);
+  button.classList.add('active');
+  showPrDiff(view, pr, row);
+}
+
+/** Shows PR `pr`'s diff under its row. Diffs are kept per head commit, so a re-render or refresh only fetches new pushes. */
+async function showPrDiff(view, pr, row) {
+  const box = mk('div', 'pr-diff');
+  box.style.fontFamily = S.settings.fontFamily || DEFAULT_FONT;
+  row.append(box);
+  view.prDiffCache = view.prDiffCache || new Map();
+  const key = `${pr.number}@${pr.headOid}`;
+  let d = view.prDiffCache.get(key);
+  if (!d) {
+    box.append(overlayNote('Loading…'));
+    try { d = await api.prDiff(view.id, pr.number); } catch (err) { d = { error: true, message: String(err && err.message || err) }; }
+    if (d && !d.error) view.prDiffCache.set(key, d);
+    if (!box.isConnected) return;
+  }
+  box.replaceChildren();
+  if (!d || d.error) {
+    const note = overlayNote(`Could not load the diff: ${d ? d.message : 'the pane is gone'}`);
+    note.dataset.kind = 'error';
+    box.append(note);
+  } else if (!d.files.length) {
+    box.append(overlayNote('No changes.'));
+  } else {
+    box.append(...diffContent(d));
+  }
 }
 
 function prStepText(s) {

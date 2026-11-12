@@ -462,7 +462,7 @@ async function run({ app, win, manager, store }) {
       check('All open switches the scope', await waitFor(() => js(`${prs}.querySelector('.pr-scope-btn.active').dataset.scope === 'all' && !!${prs}.querySelector('.ov-note[data-kind="no-remote"]')`), 5000));
 
       // A canned list stands in for gh, to check the rows and the merge flow.
-      const realPrs = manager.prs, realLand = manager.landPr;
+      const realPrs = manager.prs, realLand = manager.landPr, realPrDiff = manager.prDiff;
       const pr = (n, over) => ({
         number: n, title: `Pull request ${n}`, url: `https://github.com/o/r/pull/${n}`, draft: false, author: 'someone',
         headRef: `feat/${n}-thing`, headOid: `oid${n}`, baseRef: 'main', review: null, additions: 12, deletions: 3,
@@ -485,7 +485,20 @@ async function run({ app, win, manager, store }) {
       check('the panel lists each pull request', await waitFor(() => js(`${prs}.querySelectorAll('.pr-row').length === 2`), 5000), await js(`${prs}.textContent.slice(0, 300)`));
       check('…with draft, review, checks and conflict badges', await js(`(() => { const t = ${prs}.textContent; return ['Draft', 'Review required', '2 pending', '1 failing', 'Conflicts', 'feat/21-thing → main'].every(s => t.includes(s)); })()`));
       check('…and no Merge on a PR with conflicts', await js(`${prs}.querySelector('.pr-row[data-number="22"] .pr-merge').disabled && !${prs}.querySelector('.pr-row[data-number="21"] .pr-merge').disabled`));
+      let diffAsked = null;
+      manager.prDiff = async (_id, number) => {
+        diffAsked = number;
+        return { files: [{ path: 'src/thing.js', status: 'M', added: 1, removed: 1 }], untracked: [], truncated: false,
+          patch: 'diff --git a/src/thing.js b/src/thing.js\n--- a/src/thing.js\n+++ b/src/thing.js\n@@ -1 +1 @@\n-old line\n+new line\n' };
+      };
+      await js(`${prs}.querySelector('.pr-row[data-number="21"] .pr-diff-btn').click()`);
+      const inline = `${prs}.querySelector('.pr-row[data-number="21"] .pr-diff')`;
+      check('Diff shows the PR\'s changes under its row', await waitFor(() => js(`!!${inline} && !!${inline}.querySelector('.diff-patch .add') && ${inline}.textContent.includes('src/thing.js')`), 5000) && diffAsked === 21, diffAsked);
       await shot('13-prs-in-pane.png');
+      await js(`${prs}.querySelector('.ov-refresh').click()`);
+      check('…and stays open across a refresh without fetching again', await waitFor(() => js(`!!${inline} && ${inline}.textContent.includes('new line')`), 5000) && (diffAsked = null, true));
+      await js(`${prs}.querySelector('.pr-row[data-number="21"] .pr-diff-btn').click()`);
+      check('Diff again hides it', await js(`!${inline}`));
       await js(`window.__asterismConfirm = window.confirm; window.__asked = ''; window.confirm = q => { window.__asked = q; return true; }; true`);
       await js(`${prs}.querySelector('.pr-row[data-number="21"] .pr-merge').click()`);
       const merged = await waitFor(() => js(`!!${prs}.querySelector('.pr-result.ok') && ${prs}.querySelectorAll('.pr-row').length === 1`), 5000);
@@ -495,6 +508,7 @@ async function run({ app, win, manager, store }) {
       await js(`window.confirm = window.__asterismConfirm; true`);
       manager.prs = realPrs;
       manager.landPr = realLand;
+      manager.prDiff = realPrDiff;
       await js(`${prs}.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
       await sleep(150);
       check('Esc closes the PR panel', await js(`${prs}.classList.contains('hidden')`));

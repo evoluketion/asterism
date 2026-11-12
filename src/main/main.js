@@ -150,6 +150,7 @@ function registerIpc() {
   handle('pane:claude', (_e, id) => manager.relaunchClaude(id));
   handle('pane:diff', (_e, id) => manager.diff(id));
   handle('pane:prs', (_e, id, scope) => manager.prs(id, scope));
+  handle('pane:prdiff', (_e, id, number) => manager.prDiff(id, number));
   handle('pane:land', (_e, id, number, headOid) => manager.landPr(id, number, headOid));
   listen('layout:order', (_e, ids) => { order = Array.isArray(ids) ? ids : []; });
   listen('app:waiting', (_e, count, title) => {

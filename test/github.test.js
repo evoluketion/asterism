@@ -235,3 +235,71 @@ test('landPr rejects bad input before running anything', async () => {
   assert.equal((await gh.landPr('/w', 7, { run })).ok, false);
   assert.equal(calls.length, 0);
 });
+
+const PATCH = [
+  'diff --git a/src/a.js b/src/a.js',
+  'index 1..2 100644',
+  '--- a/src/a.js',
+  '+++ b/src/a.js',
+  '@@ -1,2 +1,2 @@',
+  '-old',
+  '+new',
+  '+more',
+  ' same',
+  'diff --git a/new file.txt b/new file.txt',
+  'new file mode 100644',
+  '--- /dev/null',
+  '+++ b/new file.txt',
+  '@@ -0,0 +1 @@',
+  '+hello',
+  'diff --git a/gone.txt b/gone.txt',
+  'deleted file mode 100644',
+  '--- a/gone.txt',
+  '+++ /dev/null',
+  '@@ -1 +0,0 @@',
+  '-bye',
+  'diff --git a/old.txt b/renamed.txt',
+  'similarity index 100%',
+  'rename from old.txt',
+  'rename to renamed.txt',
+  'diff --git a/img.png b/img.png',
+  'Binary files a/img.png and b/img.png differ',
+  '',
+].join('\n');
+
+test('parsePatchFiles lists each file with its status and counts', () => {
+  assert.deepEqual(gh.parsePatchFiles(PATCH), [
+    { path: 'src/a.js', status: 'M', added: 2, removed: 1 },
+    { path: 'new file.txt', status: 'A', added: 1, removed: 0 },
+    { path: 'gone.txt', status: 'D', added: 0, removed: 1 },
+    { path: 'renamed.txt', status: 'R', added: 0, removed: 0 },
+    { path: 'img.png', status: 'M', added: null, removed: null },
+  ]);
+  assert.deepEqual(gh.parsePatchFiles(''), []);
+});
+
+test('prDiff fetches the PR diff from the resolved repo', async () => {
+  const { run, calls } = fakeRun(repoRoutes([['gh pr diff 7', ok(PATCH.replace(/\n/g, '\r\n'))]]));
+  const d = await gh.prDiff('/w', 7, { run, env: {} });
+  assert.equal(d.files.length, 5);
+  assert.ok(!d.patch.includes('\r'));
+  assert.equal(d.truncated, false);
+  const call = calls.find(c => c.line.startsWith('gh pr diff'));
+  assert.deepEqual(call.args, ['pr', 'diff', '7', '-R', 'github.com/o/r', '--color', 'never']);
+});
+
+test('prDiff truncates a huge diff but still lists every file', async () => {
+  const { run } = fakeRun(repoRoutes([['gh pr diff 7', ok(PATCH)]]));
+  const d = await gh.prDiff('/w', 7, { run, env: {}, maxBytes: 60 });
+  assert.equal(d.truncated, true);
+  assert.equal(d.files.length, 5);
+  assert.ok(Buffer.byteLength(d.patch) <= 60);
+});
+
+test('prDiff relays gh errors and rejects bad numbers', async () => {
+  const { run } = fakeRun(repoRoutes([['gh pr diff 7', fail('HTTP 406: Sorry, the diff exceeded the maximum number of lines (20000)')]]));
+  const d = await gh.prDiff('/w', 7, { run, env: {} });
+  assert.equal(d.error, true);
+  assert.match(d.message, /exceeded/);
+  assert.equal((await gh.prDiff('/w', '7', { run: fakeRun([]).run })).error, true);
+});

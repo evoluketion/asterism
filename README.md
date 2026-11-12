@@ -43,7 +43,8 @@ real terminal and puts every session on screen at once, built for a big monitor.
 - **Git at a glance.** Each title bar shows the pane's folder and git branch, and `±` opens the
   git diff of the repo the pane is working in, so every worktree shows its own changes.
 - **Pull requests without leaving the pane.** `⇄` lists the open pull requests for the pane's
-  branch, or every open one in the repo. Each shows draft, review and CI status. **Merge…** takes a
+  branch, or every open one in the repo. Each shows draft, review and CI status, and **Diff** shows
+  its changes right there. **Merge…** takes a
   PR out of draft, approves it and merges it in one go. This uses the [GitHub CLI](https://cli.github.com).
 - **Layouts:** grid (four panes = four corners), columns, rows, main + stack and main + row. Drag
   dividers to resize, and drag title bars to swap panes.
@@ -127,6 +128,7 @@ To open a pane's folder in your file manager, click the folder in its title bar 
 To land a pull request, click `⇄` in a pane's title bar or press `Ctrl+Shift+P`. The panel opens
 inside the pane on **This branch**, which lists the open PRs from the branch the pane is on.
 **All open** lists every open PR in the repo. Click a PR's number or title to open it on GitHub.
+**Diff** opens the PR's changes under its row, with the same file list and folding as the `±` diff.
 **Merge…** shows the steps it will run and asks first. It marks a draft ready for review, approves
 the PR, then merges it with the method set in ⚙. GitHub doesn't let you approve your own pull request, so that
 step is skipped for yours. If anything was pushed to the PR after the list loaded, nothing runs;

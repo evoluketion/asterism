@@ -217,6 +217,13 @@ class PaneManager extends EventEmitter {
     return { cwd, ...await github.prsOf(cwd, { scope: scope === 'all' ? 'all' : 'branch', env: await this.ghEnv() }) };
   }
 
+  /** PR `number`'s diff, from GitHub, for the repo the pane is working in. */
+  async prDiff(id, number) {
+    const pane = this.panes.get(id);
+    if (!pane) return null;
+    return github.prDiff(pane.status.claudeCwd || pane.cwd, number, { env: await this.ghEnv() });
+  }
+
   /** Readies, approves and merges PR `number` in the pane's repo, with the merge method from settings. */
   async landPr(id, number, headOid) {
     const pane = this.panes.get(id);

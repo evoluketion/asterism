@@ -70,7 +70,8 @@ Drag dividers to resize. Zoom toggles one pane to fill the window.
 - Pull requests: `⇄` / Ctrl+Shift+P opens a panel in the same overlay slot as the diff (one panel per pane;
   both share `overlayHtml` / `wireOverlay`). It lists open PRs for the pane's branch or the whole repo via `gh`
   (main process, `github.js`). Every call passes `-R host/owner/repo`, resolved once with `gh repo view`, so gh
-  never guesses from local git state, and gh runs with the login-shell PATH and `GH_PROMPT_DISABLED`. A repo
+  never guesses from local git state. Diff on a row shows `gh pr diff` inline through the same renderer as the git
+  diff, cached per head commit. gh runs with the login-shell PATH and `GH_PROMPT_DISABLED`. A repo
   with no git remote is answered before gh runs. Merge… runs `gh pr ready` (drafts only), `gh pr review --approve`
   (skipped for your own PR, which GitHub refuses, or one already approved) and `gh pr merge --<method>
   --match-head-commit <oid>`. It stops at the first failure. The step list is computed in main and shown in the

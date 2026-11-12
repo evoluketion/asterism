@@ -195,4 +195,57 @@ async function landPr(cwd, number, { method = 'merge', headOid, run = defaultRun
   return { ok: true, steps };
 }
 
-module.exports = { prsOf, landPr, planSteps, MERGE_METHODS, classifyGhError, summariseChecks, normalisePr, hostOf, ghEnv, _viewers: viewers };
+/** The changed files in a unified diff, with the same shape git.diffOf returns. */
+function parsePatchFiles(patch) {
+  const files = [];
+  let f = null;
+  let inHeader = false;
+  const strip = p => p.replace(/^"|"$/g, '').replace(/^[ab]\//, '');
+  for (const line of patch.split('\n')) {
+    if (line.startsWith('diff --git ')) {
+      const m = / b\/(.*)$/.exec(line);
+      f = { path: m ? m[1] : line.slice(11), status: 'M', added: 0, removed: 0 };
+      files.push(f);
+      inHeader = true;
+      continue;
+    }
+    if (!f) continue;
+    if (inHeader) {
+      if (line.startsWith('@@')) inHeader = false;
+      else if (line.startsWith('new file mode')) f.status = 'A';
+      else if (line.startsWith('deleted file mode')) f.status = 'D';
+      else if (line.startsWith('rename to ')) { f.status = 'R'; f.path = line.slice(10); }
+      else if (line.startsWith('+++ ') && line !== '+++ /dev/null') f.path = strip(line.slice(4));
+      else if (line.startsWith('--- ') && f.status === 'D' && line !== '--- /dev/null') f.path = strip(line.slice(4));
+      else if (line.startsWith('Binary files ')) { f.added = null; f.removed = null; }
+      continue;
+    }
+    if (line[0] === '+') f.added++;
+    else if (line[0] === '-') f.removed++;
+  }
+  return files;
+}
+
+/** Cuts `text` to at most `maxBytes` of UTF-8, ending on a line boundary. */
+function truncate(text, maxBytes) {
+  const buf = Buffer.from(text, 'utf8');
+  if (buf.length <= maxBytes) return { text, truncated: false };
+  const cut = buf.subarray(0, maxBytes).lastIndexOf(0x0a);
+  return { text: buf.subarray(0, cut < 0 ? 0 : cut + 1).toString('utf8'), truncated: true };
+}
+
+/** PR `number`'s diff against its base, as GitHub shows it: { files, untracked: [], patch, truncated } or an error. */
+async function prDiff(cwd, number, { run = defaultRun, env = process.env, maxBytes = 1_000_000 } = {}) {
+  env = ghEnv(env);
+  if (!Number.isInteger(number) || number <= 0) return { error: true, kind: 'other', message: 'Not a pull request number.' };
+  if (!cwd) return { error: true, kind: 'no-repo', message: 'The pane has no folder.' };
+  const r = await repoOf(cwd, { run, env });
+  if (r.error) return r;
+  const res = await run('gh', ['pr', 'diff', String(number), '-R', r.repo.slug, '--color', 'never'], { env });
+  if (!res.ok) return { error: true, ...classifyGhError(res) };
+  const patch = res.out.replace(/\r\n/g, '\n');
+  const cut = truncate(patch, maxBytes);
+  return { files: parsePatchFiles(patch), untracked: [], patch: cut.text, truncated: cut.truncated };
+}
+
+module.exports = { prsOf, landPr, prDiff, parsePatchFiles, planSteps, MERGE_METHODS, classifyGhError, summariseChecks, normalisePr, hostOf, ghEnv, _viewers: viewers };
