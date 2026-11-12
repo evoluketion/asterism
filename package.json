@@ -36,7 +36,8 @@
       "package.json"
     ],
     "asarUnpack": [
-      "node_modules/node-pty/**"
+      "node_modules/node-pty/**",
+      "src/assets/icon.ico"
     ],
     "npmRebuild": false,
     "linux": {
