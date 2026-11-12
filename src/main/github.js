@@ -3,6 +3,8 @@
 const { execFile } = require('child_process');
 
 const READ_TIMEOUT_MS = 20000;
+const WRITE_TIMEOUT_MS = 60000;
+const MERGE_METHODS = ['merge', 'squash', 'rebase'];
 const PR_LIMIT = 100;
 const PR_FIELDS = [
   'number', 'title', 'url', 'isDraft', 'author', 'headRefName', 'headRefOid', 'baseRefName',
@@ -125,8 +127,72 @@ async function prsOf(cwd, { scope = 'branch', run = defaultRun, env = process.en
   if (!list.ok) return { ...base, error: true, ...classifyGhError(list) };
   let raw;
   try { raw = JSON.parse(list.out); } catch { return { ...base, error: true, kind: 'other', message: 'gh returned something unreadable.' }; }
-  const prs = raw.map(normalisePr);
+  const prs = raw.map(normalisePr).map(pr => ({ ...pr, plan: planSteps(pr, viewer) }));
   return { ...base, viewer, prs, limited: raw.length >= PR_LIMIT };
 }
 
-module.exports = { prsOf, classifyGhError, summariseChecks, normalisePr, hostOf, ghEnv, _viewers: viewers };
+/**
+ * The steps that land `pr`: take it out of draft, approve it, merge it. Approval is skipped for your
+ * own PR, which GitHub refuses, and for one that is already approved.
+ */
+function planSteps(pr, viewer) {
+  const steps = [];
+  if (pr.draft) steps.push({ step: 'ready' });
+  if (viewer && pr.author && viewer.toLowerCase() === pr.author.toLowerCase()) {
+    steps.push({ step: 'approve', skip: "It's your own pull request, and GitHub doesn't let you approve those." });
+  } else if (pr.review === 'APPROVED') {
+    steps.push({ step: 'approve', skip: 'Already approved.' });
+  } else {
+    steps.push({ step: 'approve' });
+  }
+  steps.push({ step: 'merge' });
+  return steps;
+}
+
+const STEP_ARGS = {
+  ready: (n, slug) => ['pr', 'ready', n, '-R', slug],
+  approve: (n, slug) => ['pr', 'review', n, '-R', slug, '--approve'],
+  // Never --delete-branch: a worktree may still have the branch checked out.
+  merge: (n, slug, { method, headOid }) => ['pr', 'merge', n, '-R', slug, `--${method}`, '--match-head-commit', headOid],
+};
+
+/**
+ * Takes PR `number` out of draft, approves it and merges it with `method`, stopping at the first
+ * step that fails. `headOid` is the head commit the user was shown: if anything was pushed since,
+ * nothing runs, so a commit nobody saw can't be merged.
+ * Resolves { ok, steps: [{ step, ok, skipped, message }], error?, kind? }.
+ */
+async function landPr(cwd, number, { method = 'merge', headOid, run = defaultRun, env = process.env } = {}) {
+  env = ghEnv(env);
+  const stop = (message, kind = 'other') => ({ ok: false, error: true, kind, message, steps: [] });
+  if (!MERGE_METHODS.includes(method)) return stop(`Unknown merge method "${method}".`);
+  if (!Number.isInteger(number) || number <= 0) return stop('Not a pull request number.');
+  if (!headOid) return stop('Refresh the list and try again.');
+  if (!cwd) return stop('The pane has no folder.', 'no-repo');
+  const r = await repoOf(cwd, { run, env });
+  if (r.error) return stop(r.message, r.kind);
+  const n = String(number);
+  const { slug, host } = r.repo;
+
+  const view = await run('gh', ['pr', 'view', n, '-R', slug, '--json', 'state,isDraft,author,headRefOid,reviewDecision,mergeable'], { env });
+  if (!view.ok) { const e = classifyGhError(view); return stop(e.message, e.kind); }
+  let now;
+  try { now = JSON.parse(view.out); } catch { return stop('gh returned something unreadable.'); }
+  if (now.state !== 'OPEN') return stop(`#${n} is ${String(now.state || 'not open').toLowerCase()}.`);
+  if (now.headRefOid !== headOid) return stop(`New commits were pushed to #${n} since the list was loaded. Refresh and check them first.`, 'moved');
+  if (now.mergeable === 'CONFLICTING') return stop(`#${n} has merge conflicts with its base branch.`, 'conflict');
+
+  const pr = normalisePr({ ...now, number });
+  const viewer = await viewerOf(host, { run, env });
+  const steps = [];
+  for (const s of planSteps(pr, viewer)) {
+    if (s.skip) { steps.push({ step: s.step, ok: true, skipped: true, message: s.skip }); continue; }
+    const res = await run('gh', STEP_ARGS[s.step](n, slug, { method, headOid }), { env, timeout: WRITE_TIMEOUT_MS });
+    const message = (res.ok ? (res.err || res.out) : classifyGhError(res).message).trim();
+    steps.push({ step: s.step, ok: res.ok, skipped: false, message });
+    if (!res.ok) return { ok: false, steps };
+  }
+  return { ok: true, steps };
+}
+
+module.exports = { prsOf, landPr, planSteps, MERGE_METHODS, classifyGhError, summariseChecks, normalisePr, hostOf, ghEnv, _viewers: viewers };

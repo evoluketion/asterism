@@ -153,3 +153,85 @@ gitTest('prsOf outside a repo reports no-repo', async t => {
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   assert.equal((await gh.prsOf(dir)).kind, 'no-repo');
 });
+
+test('planSteps readies a draft, approves and merges', () => {
+  const pr = gh.normalisePr({ ...RAW_PR, author: { login: 'someone' } });
+  assert.deepEqual(gh.planSteps(pr, 'me'), [{ step: 'ready' }, { step: 'approve' }, { step: 'merge' }]);
+  assert.deepEqual(gh.planSteps({ ...pr, draft: false }, 'me').map(s => s.step), ['approve', 'merge']);
+});
+
+test('planSteps skips approving your own or an approved PR', () => {
+  const own = gh.planSteps(gh.normalisePr(RAW_PR), 'Me');
+  assert.match(own[1].skip, /your own/);
+  const approved = gh.planSteps({ ...gh.normalisePr(RAW_PR), author: 'x', review: 'APPROVED' }, 'me');
+  assert.match(approved[1].skip, /Already approved/);
+  // With no known viewer, try approving and let GitHub say no.
+  assert.equal(gh.planSteps(gh.normalisePr(RAW_PR), null)[1].skip, undefined);
+});
+
+const VIEW = { state: 'OPEN', isDraft: true, author: { login: 'someone' }, headRefOid: 'abc123', reviewDecision: '', mergeable: 'MERGEABLE' };
+
+test('landPr readies, approves and merges in order with the head pinned', async () => {
+  const { run, calls } = fakeRun(repoRoutes([
+    ['gh pr view 7', ok(VIEW)],
+    ['gh pr ready 7', ok('')],
+    ['gh pr review 7', ok('')],
+    ['gh pr merge 7', ok('')],
+  ]));
+  const r = await gh.landPr('/w', 7, { method: 'squash', headOid: 'abc123', run, env: {} });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.steps.map(s => [s.step, s.ok, s.skipped]), [['ready', true, false], ['approve', true, false], ['merge', true, false]]);
+  const writes = calls.filter(c => /^gh pr (ready|review|merge)/.test(c.line));
+  assert.deepEqual(writes.map(c => c.args[1]), ['ready', 'review', 'merge']);
+  const merge = writes[2].args;
+  assert.ok(merge.includes('--squash'));
+  assert.equal(merge[merge.indexOf('--match-head-commit') + 1], 'abc123');
+  for (const c of calls.filter(c => c.args[0] === 'pr')) {
+    assert.equal(c.args[c.args.indexOf('-R') + 1], 'github.com/o/r');
+    assert.ok(!c.args.includes('-d') && !c.args.includes('--delete-branch'));
+  }
+});
+
+test('landPr skips approving your own PR', async () => {
+  const { run, calls } = fakeRun(repoRoutes([
+    ['gh pr view 7', ok({ ...VIEW, isDraft: false, author: { login: 'me' } })],
+    ['gh pr merge 7', ok('')],
+  ]));
+  const r = await gh.landPr('/w', 7, { headOid: 'abc123', run, env: {} });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.steps.map(s => [s.step, s.skipped]), [['approve', true], ['merge', false]]);
+  assert.ok(!calls.some(c => c.line.startsWith('gh pr review')));
+  assert.ok(calls.find(c => c.line.startsWith('gh pr merge')).args.includes('--merge'));
+});
+
+test('landPr stops at the first failing step', async () => {
+  const { run, calls } = fakeRun(repoRoutes([
+    ['gh pr view 7', ok(VIEW)],
+    ['gh pr ready 7', ok('')],
+    ['gh pr review 7', fail('GraphQL: Review cannot be requested')],
+  ]));
+  const r = await gh.landPr('/w', 7, { headOid: 'abc123', run, env: {} });
+  assert.equal(r.ok, false);
+  assert.deepEqual(r.steps.map(s => [s.step, s.ok]), [['ready', true], ['approve', false]]);
+  assert.match(r.steps[1].message, /Review cannot/);
+  assert.ok(!calls.some(c => c.line.startsWith('gh pr merge')));
+});
+
+test('landPr refuses when the head moved, the PR closed or it conflicts', async () => {
+  for (const [view, kind] of [[{ ...VIEW, headRefOid: 'def456' }, 'moved'], [{ ...VIEW, state: 'MERGED' }, 'other'], [{ ...VIEW, mergeable: 'CONFLICTING' }, 'conflict']]) {
+    const { run, calls } = fakeRun(repoRoutes([['gh pr view 7', ok(view)]]));
+    const r = await gh.landPr('/w', 7, { headOid: 'abc123', run, env: {} });
+    assert.equal(r.ok, false);
+    assert.equal(r.kind, kind);
+    assert.deepEqual(r.steps, []);
+    assert.ok(!calls.some(c => /^gh pr (ready|review|merge)/.test(c.line)));
+  }
+});
+
+test('landPr rejects bad input before running anything', async () => {
+  const { run, calls } = fakeRun([]);
+  assert.equal((await gh.landPr('/w', 7, { method: 'yolo', headOid: 'a', run })).ok, false);
+  assert.equal((await gh.landPr('/w', '7; rm', { headOid: 'a', run })).ok, false);
+  assert.equal((await gh.landPr('/w', 7, { run })).ok, false);
+  assert.equal(calls.length, 0);
+});
