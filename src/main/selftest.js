@@ -6,6 +6,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -385,6 +386,23 @@ async function run({ app, win, manager, store }) {
       check('Save keeps the theme', store.settings.theme === 'tokyo-night' && (await bgVar()) === '#1a1b26', [store.settings.theme, await bgVar()]);
       const tbg = (await js('window.__asterismTest.state()')).panes.map(p => p.termBg);
       check('terminals follow the theme', tbg.length && tbg.every(b => b === '#1a1b26'), tbg);
+    }
+
+    // A pane's diff comes from the repo it is working in.
+    {
+      const repo = fs.mkdtempSync(path.join(app.getPath('temp'), 'asterism-diff-'));
+      const g = (...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', '-C', repo, ...a], { stdio: 'ignore' });
+      g('init', '-q');
+      fs.writeFileSync(path.join(repo, 'tracked.txt'), 'before\n');
+      g('add', '.');
+      g('commit', '-q', '-m', 'init');
+      fs.writeFileSync(path.join(repo, 'tracked.txt'), 'after\n');
+      const dId = await js(`window.__asterismTest.newPane(${JSON.stringify({ kind: 'shell', name: 'diff', cwd: repo })})`);
+      const d = await manager.diff(dId);
+      check('pane diff lists the changed file', d && d.files.length === 1 && d.files[0].path === 'tracked.txt' && /^\+after$/m.test(d.patch), d);
+      await js(`window.__asterismTest.closePane(${JSON.stringify(dId)}, { force: true })`);
+      await sleep(300);
+      fs.rmSync(repo, { recursive: true, force: true });
     }
 
     // Leaving the project closes its panes (kept in the project) and Ctrl+Shift+N asks again.

@@ -128,6 +128,7 @@ function registerIpc() {
   listen('pane:kill', (_e, id) => manager.kill(id));
   listen('pane:rename', (_e, id, name) => manager.rename(id, name));
   handle('pane:claude', (_e, id) => manager.relaunchClaude(id));
+  handle('pane:diff', (_e, id) => manager.diff(id));
   listen('layout:order', (_e, ids) => { order = Array.isArray(ids) ? ids : []; });
   listen('app:waiting', (_e, count, title) => {
     if (!win) return;
