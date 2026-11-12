@@ -175,8 +175,11 @@ class PaneManager extends EventEmitter {
   }
 
   tick() {
+    const min = Number(this.getSettings().backgroundQuietMin);
+    const backgroundQuietMs = Number.isFinite(min) && min >= 0 ? min * 60000 : undefined;
+    const now = Date.now();
     for (const pane of this.panes.values()) {
-      if (pane.status.tick()) this.emitStatus(pane);
+      if (pane.status.tick(now, backgroundQuietMs)) this.emitStatus(pane);
     }
   }
 
@@ -186,6 +189,14 @@ class PaneManager extends EventEmitter {
       pane.branch = branch;
       if (this.panes.has(pane.id)) this.emitStatus(pane);
     }
+  }
+
+  /** The git diff of the repo the pane is working in, or null for an unknown pane. */
+  async diff(id) {
+    const pane = this.panes.get(id);
+    if (!pane) return null;
+    const cwd = pane.status.claudeCwd || pane.cwd;
+    return { cwd, ...await git.diffOf(cwd) };
   }
 
   emitStatus(pane) {

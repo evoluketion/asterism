@@ -85,11 +85,22 @@ function createView(snap) {
       <span class="pane-reply"></span>
       <span class="pane-chip"></span>
       <button class="pane-btn restart hidden" title="Start Claude again, resuming this conversation">↻ Claude</button>
+      <button class="pane-btn diff" title="Git diff (Ctrl+Shift+D)">±</button>
       <button class="pane-btn zoom" title="Zoom (Ctrl+Shift+Enter)">⤢</button>
       <button class="pane-btn close" title="Close (Ctrl+Shift+W)">✕</button>
     </div>
     <div class="pane-term"></div>
-    <div class="pane-search hidden"><input placeholder="Find in scrollback  (Enter / Shift+Enter, Esc)" spellcheck="false"><span class="pane-search-count"></span></div>`;
+    <div class="pane-search hidden"><input placeholder="Find in scrollback  (Enter / Shift+Enter, Esc)" spellcheck="false"><span class="pane-search-count"></span></div>
+    <div class="pane-diff hidden" tabindex="-1">
+      <div class="diff-head">
+        <span class="diff-title"></span>
+        <span class="diff-sum"></span>
+        <button class="pane-btn diff-refresh" title="Refresh">⟳</button>
+        <button class="pane-btn diff-expand" title="Back into the pane">⛶</button>
+        <button class="pane-btn diff-close" title="Close (Esc)">✕</button>
+      </div>
+      <div class="diff-body"></div>
+    </div>`;
   const bar = el.querySelector('.pane-bar');
   const termEl = el.querySelector('.pane-term');
 
@@ -142,6 +153,8 @@ function createView(snap) {
 
   bar.querySelector('.restart').addEventListener('click', e => { e.stopPropagation(); restartPane(view.id); });
   wireSearch(view);
+  wireDiff(view);
+  bar.querySelector('.diff').addEventListener('click', e => { e.stopPropagation(); toggleDiff(view.id); });
   bar.querySelector('.close').addEventListener('click', e => { e.stopPropagation(); closePane(view.id); });
   bar.querySelector('.zoom').addEventListener('click', e => { e.stopPropagation(); toggleZoom(view.id); });
   const metaEl = bar.querySelector('.pane-meta');
@@ -299,6 +312,154 @@ function closeSearch(view) {
   view.el.querySelector('.pane-search').classList.add('hidden');
   view.search.clearDecorations();
   view.term.focus();
+}
+
+function wireDiff(view) {
+  const box = view.el.querySelector('.pane-diff');
+  box.querySelector('.diff-close').addEventListener('click', () => closeDiff(view.id));
+  box.querySelector('.diff-refresh').addEventListener('click', () => loadDiff(view));
+  box.querySelector('.diff-expand').addEventListener('click', () => {
+    setDiffExpanded(box, !box.classList.contains('expanded'));
+    box.focus();
+  });
+  box.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeDiff(view.id); }
+  });
+}
+
+function setDiffExpanded(box, on) {
+  box.classList.toggle('expanded', on);
+  box.querySelector('.diff-expand').title = on ? 'Back into the pane' : 'Expand to full window';
+}
+
+function toggleDiff(id = S.focused) {
+  const view = S.panes.get(id);
+  if (!view) return;
+  if (view.el.querySelector('.pane-diff').classList.contains('hidden')) openDiff(view);
+  else closeDiff(id);
+}
+
+function openDiff(view) {
+  const box = view.el.querySelector('.pane-diff');
+  box.classList.remove('hidden');
+  setDiffExpanded(box, true);
+  box.querySelector('.diff-body').style.fontFamily = S.settings.fontFamily || DEFAULT_FONT;
+  box.focus();
+  loadDiff(view);
+}
+
+function closeDiff(id) {
+  const view = S.panes.get(id);
+  if (!view) return;
+  const box = view.el.querySelector('.pane-diff');
+  box.classList.add('hidden');
+  focusPane(id);
+}
+
+async function loadDiff(view) {
+  const box = view.el.querySelector('.pane-diff');
+  const body = box.querySelector('.diff-body');
+  // A slow diff that finishes after a newer request must not overwrite it.
+  const token = view.diffToken = (view.diffToken || 0) + 1;
+  body.replaceChildren(diffNote('Loading…'));
+  let d;
+  try { d = await api.diff(view.id); } catch (err) { d = { error: String(err && err.message || err) }; }
+  if (token !== view.diffToken || !S.panes.has(view.id)) return;
+  renderDiff(box, d);
+}
+
+function diffNote(text) {
+  const n = document.createElement('div');
+  n.className = 'diff-note';
+  n.textContent = text;
+  return n;
+}
+
+function renderDiff(box, d) {
+  const body = box.querySelector('.diff-body');
+  const title = box.querySelector('.diff-title');
+  const sum = box.querySelector('.diff-sum');
+  body.replaceChildren();
+  sum.textContent = '';
+  if (!d || d.error) { title.textContent = 'Git diff'; body.append(diffNote(`Could not read the diff: ${d ? d.error : 'pane is gone'}`)); return; }
+  if (!d.root) { title.textContent = d.cwd || ''; body.append(diffNote('Not a git repository.')); return; }
+
+  title.textContent = `${d.branch || '(detached)'} · ${d.root}`;
+  title.title = d.cwd && d.cwd !== d.root ? `${d.root}\npane folder: ${d.cwd}` : d.root;
+  const added = d.files.reduce((n, f) => n + (f.added || 0), 0);
+  const removed = d.files.reduce((n, f) => n + (f.removed || 0), 0);
+  sum.textContent = `${d.files.length} file${d.files.length === 1 ? '' : 's'}  +${added} −${removed}${d.untracked.length ? `  · ${d.untracked.length} untracked` : ''}`;
+  if (!d.files.length && !d.untracked.length) { body.append(diffNote('No changes against HEAD.')); return; }
+
+  const list = document.createElement('div');
+  list.className = 'diff-files';
+  const rows = d.files.map(f => {
+    const row = document.createElement('button');
+    row.className = 'diff-file';
+    const st = document.createElement('span');
+    st.className = `diff-st st-${f.status}`;
+    st.textContent = f.status;
+    const name = document.createElement('span');
+    name.className = 'diff-path';
+    name.textContent = f.path;
+    const n = document.createElement('span');
+    n.className = 'diff-n';
+    if (f.added === null) n.textContent = 'binary';
+    else {
+      const a = document.createElement('span'); a.className = 'add'; a.textContent = `+${f.added}`;
+      const r = document.createElement('span'); r.className = 'del'; r.textContent = `−${f.removed}`;
+      n.append(a, ' ', r);
+    }
+    row.append(st, name, n);
+    list.append(row);
+    return row;
+  });
+  for (const u of d.untracked) {
+    const row = document.createElement('div');
+    row.className = 'diff-file untracked';
+    const st = document.createElement('span'); st.className = 'diff-st'; st.textContent = '?';
+    const name = document.createElement('span'); name.className = 'diff-path'; name.textContent = u;
+    row.append(st, name);
+    list.append(row);
+  }
+  body.append(list);
+
+  // numstat and the patch list files in the same order, so the n-th header belongs to the n-th file.
+  const pre = document.createElement('div');
+  pre.className = 'diff-patch';
+  const sections = [];
+  let target = pre;
+  let inHeader = false;
+  for (const line of d.patch ? d.patch.replace(/\n$/, '').split('\n') : []) {
+    const el = document.createElement('div');
+    el.textContent = line || ' ';
+    if (line.startsWith('diff --git ')) {
+      inHeader = true;
+      const sec = document.createElement('div');
+      sec.className = 'diff-sec';
+      el.className = 'file';
+      el.title = 'Click to fold or unfold this file';
+      el.addEventListener('click', () => sec.classList.toggle('collapsed'));
+      target = document.createElement('div');
+      target.className = 'diff-sec-body';
+      sec.append(el, target);
+      pre.append(sec);
+      sections.push(sec);
+      continue;
+    }
+    if (line.startsWith('@@')) { inHeader = false; el.className = 'hunk'; }
+    else if (inHeader) el.className = 'meta';
+    else if (line[0] === '+') el.className = 'add';
+    else if (line[0] === '-') el.className = 'del';
+    target.append(el);
+  }
+  body.append(pre);
+  rows.forEach((row, i) => {
+    const sec = sections[i];
+    if (sec) row.addEventListener('click', () => { sec.classList.remove('collapsed'); sec.scrollIntoView({ block: 'start' }); });
+    else row.disabled = true;
+  });
+  if (d.truncated) body.append(diffNote('Diff truncated — it is too large to show in full.'));
 }
 
 // ---------- Layout rendering ----------
@@ -534,7 +695,7 @@ function updateWaiting() {
   const reveal = $('#toolbar-reveal');
   reveal.classList.toggle('waiting', waiting.length > 0 && !urgent);
   reveal.classList.toggle('urgent', urgent);
-  api.setWaiting(waiting.length, waiting.length ? `(${waiting.length}) Asterism` : 'Asterism');
+  api.setWaiting(waiting.length, waiting.length ? `(${waiting.length}) ${S.appName}` : S.appName);
 }
 
 // ---------- Attention: sound + desktop notification ----------
@@ -711,7 +872,7 @@ function updateProjectUi() {
   b.textContent = p ? `${p.name} ▾` : 'No project ▾';
   b.title = p ? `Project ${p.name}: new Claude panes start in ${p.dir}` : 'Projects';
   b.classList.toggle('in-project', !!p);
-  document.title = p ? `${p.name} · Asterism` : 'Asterism';
+  document.title = p ? `${p.name} · ${S.appName}` : S.appName;
 }
 
 function busyCount() {
@@ -779,7 +940,7 @@ function reopenLast() {
 
 function renderEmpty() {
   const p = activeProject();
-  $('#empty h1').textContent = p ? p.name : 'Asterism';
+  $('#empty h1').textContent = p ? p.name : S.appName;
   $('#empty-sub').textContent = p ? `${shortPath(p.dir)} · no panes open yet` : 'Tiled Claude Code sessions with a status light on every pane.';
   $('#empty-hint').textContent = p
     ? 'Ctrl+Shift+N new Claude pane here · Ctrl+Shift+O pick another folder · Ctrl+Shift+L cycle layout'
@@ -976,6 +1137,7 @@ const SHORTCUTS = [
   ['Ctrl+Shift+L', 'Cycle layout'],
   ['Ctrl+Shift+R', 'Rename focused pane'],
   ['Ctrl+Shift+F', 'Search the focused pane\'s scrollback'],
+  ['Ctrl+Shift+D', 'Show the focused pane\'s git diff (Esc closes)'],
   ['Ctrl+Shift+C / V', 'Copy selection / paste (right-click does the same)'],
   ['Ctrl+Shift+= / -', 'Font size'],
   ['Shift+Enter', 'Newline in the Claude prompt'],
@@ -1001,12 +1163,15 @@ function settingsModal() {
       <div style="flex:1"><label>Font size</label><input id="set-fs" type="number" min="8" max="32" value="${st.fontSize}"></div>
       <div style="flex:3"><label>Font family (blank = default)</label><input id="set-ff" value="${esc(st.fontFamily)}" spellcheck="false"></div>
     </div>
+    <div class="row">
+      <div style="flex:1"><label>Background work timeout (minutes, 0 = never)</label><input id="set-bgquiet" type="number" min="0" max="1440" value="${st.backgroundQuietMin ?? 10}"></div>
+    </div>
     <label class="check"><input id="set-notify" type="checkbox" ${st.notifyDesktop ? 'checked' : ''}> Desktop notification when a pane needs you and Asterism isn't focused</label>
     <label class="check"><input id="set-reopen" type="checkbox" ${st.reopenLast ? 'checked' : ''}> Reopen the last project at startup, resuming each pane's conversation</label>
     <label class="check"><input id="set-sound" type="checkbox" ${st.sound ? 'checked' : ''}> Sound when a pane you aren't looking at needs you</label>
     <h2 style="margin-top:8px">Shortcuts</h2>
     <div class="keys">${SHORTCUTS.map(([k, d]) => `<kbd>${k}</kbd><span>${d}</span>`).join('')}</div>
-    <div class="actions"><span class="muted" style="margin-right:auto;align-self:center">Asterism v${esc(S.version)}</span><button id="set-cancel">Cancel</button><button id="set-save" class="primary">Save</button></div>`;
+    <div class="actions"><span class="muted" style="margin-right:auto;align-self:center">${esc(S.appName)} v${esc(S.version)}</span><button id="set-cancel">Cancel</button><button id="set-save" class="primary">Save</button></div>`;
   $('#modal-backdrop').classList.remove('hidden');
   const q = s => m.querySelector(s);
   // Theme cards preview live; Cancel / Escape put the saved theme back.
@@ -1032,6 +1197,7 @@ function settingsModal() {
       notifyDesktop: q('#set-notify').checked,
       sound: q('#set-sound').checked,
       reopenLast: q('#set-reopen').checked,
+      backgroundQuietMin: (n => (Number.isFinite(n) ? Math.min(1440, Math.max(0, n)) : 10))(parseFloat(q('#set-bgquiet').value)),
     });
     applyFont();
     close();
@@ -1113,7 +1279,7 @@ function handleHotkey(e) {
   if (e.code === 'Tab') { cyclePane(e.shiftKey ? -1 : 1); return true; }
   if (!e.shiftKey) return false;
   // Held-down keys auto-repeat; never let that open, close or re-layout panes repeatedly.
-  if (e.repeat && ['KeyN', 'KeyO', 'KeyT', 'KeyW', 'KeyL', 'Enter', 'KeyR', 'KeyF', 'KeyH', 'KeyE'].includes(e.code)) return true;
+  if (e.repeat && ['KeyN', 'KeyO', 'KeyT', 'KeyW', 'KeyL', 'Enter', 'KeyR', 'KeyF', 'KeyH', 'KeyE', 'KeyD'].includes(e.code)) return true;
   const v = S.focused && S.panes.get(S.focused);
   const digit = /^Digit([1-9])$/.exec(e.code);
   if (digit) {
@@ -1140,6 +1306,7 @@ function handleHotkey(e) {
     case 'KeyR': if (v) renamePrompt(v.id); return true;
     case 'KeyF': if (v) openSearch(v); return true;
     case 'KeyE': if (v) api.openDir(v.id); return true;
+    case 'KeyD': if (v) toggleDiff(v.id); return true;
     case 'KeyH': toggleToolbar(); return true;
     case 'KeyC': if (v && v.term.hasSelection()) { api.clipboardWrite(v.term.getSelection()); v.term.clearSelection(); } return true;
     case 'KeyV': if (v) api.clipboardRead().then(t => { if (t) v.term.paste(t); }); return true;
@@ -1209,7 +1376,9 @@ setInterval(() => { for (const v of S.panes.values()) updateBar(v); updateWaitin
   Object.assign(S, {
     settings: init.settings, projects: init.projects || {}, lastSession: init.lastSession,
     recentDirs: init.recentDirs || [], home: init.home, version: init.version || '',
+    appName: init.appName || 'Asterism',
   });
+  $('.brand').textContent = S.appName;
   buildToolbar();
   wireToolbarPeek();
   applyTheme();
@@ -1219,7 +1388,7 @@ setInterval(() => { for (const v of S.panes.values()) updateBar(v); updateWaitin
   if (S.settings.reopenLast && !init.test) reopenLast();
   if (init.test) {
     window.__asterismTest = {
-      newPane, newPanePopover, applyTheme, settingsModal, setPreset, focusPane, setPeek, closePane, jumpToWaiting, toggleZoom, openLayout, serializeLayout,
+      newPane, newPanePopover, applyTheme, settingsModal, setPreset, focusPane, setPeek, closePane, jumpToWaiting, toggleZoom, toggleDiff, openLayout, serializeLayout,
       openProject, leaveProject, createProject, projectsPopover,
       state: () => ({
         order: L.leafIds(S.tree), focused: S.focused, preset: S.preset, zoomed: S.zoomed, project: S.project,

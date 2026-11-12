@@ -12,8 +12,8 @@
     "rebuild": "electron-rebuild -f -w node-pty",
     "postinstall": "node scripts/postinstall.js",
     "icon": "electron scripts/render-icon.js",
-    "dist:linux": "electron-builder --linux AppImage --publish never",
-    "dist:win": "electron-builder --win portable --publish never"
+    "dist:linux": "node scripts/dist.js linux",
+    "dist:win": "node scripts/dist.js win"
   },
   "dependencies": {
     "@xterm/addon-fit": "0.11.0",

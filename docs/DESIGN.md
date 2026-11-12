@@ -33,7 +33,7 @@ Event → state:
 | PermissionRequest, Notification(permission_prompt) | `permission` (amber pulse) |
 | Notification(elicitation_dialog) | `question` |
 | Notification(idle_prompt) | ready (backup) |
-| Stop | `ready` (green, persistent) — read last assistant msg from transcript |
+| Stop | `ready` (green, persistent) — read last assistant msg from transcript. Stays `working` while `background_tasks` lists unfinished non-monitor tasks; Claude Code sends another Stop when they finish |
 | SessionEnd | `shell` (claude exited, shell still alive) |
 | PTY exit | `exited` (red) |
 
@@ -41,6 +41,11 @@ Event → state:
 Interrupt fallback: Stop does not fire on Esc/Ctrl+C. If the user presses Esc/Ctrl+C in a
 `working` pane and PTY output then goes quiet for 1.5 s → `idle`. Generic fallback: `working` with
 no PTY output for 30 s → `ready` flagged `inferred` (Claude's spinner normally repaints constantly).
+Both fallbacks, and the idle_prompt backup, are skipped while only background tasks are running:
+the main thread is at its prompt and background subagents write almost nothing to the PTY. Instead,
+background work that fires no hook event for `backgroundQuietMin` minutes (default 10, 0 = never)
+→ `ready` flagged `inferred`. Working subagents keep firing tool hooks; a background dev server
+fires none, so this is what releases a pane left running one.
 
 ## Pane-to-pane awareness — MCP over HTTP
 Main process hosts a minimal Streamable-HTTP MCP endpoint at `/mcp/<paneId>`; each claude gets
@@ -57,7 +62,11 @@ Presets (columns, rows, grid, main-left, main-top) just rebuild the tree from th
 Drag dividers to resize. Zoom toggles one pane to fill the window.
 
 ## UX
-- Pane chrome: thin title bar (name, cwd, branch, state chip, last reply one-liner); clicking the cwd opens it in the file manager, coloured border.
+- Pane chrome: thin title bar (name, cwd, branch, state chip, last reply one-liner), coloured border;
+  clicking the cwd opens it in the file manager.
+- Git diff: `±` / Ctrl+Shift+D overlays the pane with `git diff HEAD` (staged + unstaged, untracked by
+  name) for the repo containing the pane's cwd, so worktrees each show their own. Read-only, refreshed on
+  demand. Opens over the whole window; ⛶ docks it into the pane.
 - Toolbar: + Claude pane, + shell pane, layout picker, project menu, waiting counter.
 - Hotkeys (app-level, so they never collide with Claude's TUI):
   Ctrl+Shift+Space jump to longest-waiting pane · Ctrl+Shift+N new Claude pane ·

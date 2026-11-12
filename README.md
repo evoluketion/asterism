@@ -82,6 +82,13 @@ npm run dist:win
 This builds a portable `Asterism-<version>.exe` in `dist/`: no install, just run it, like the
 AppImage. Windows uses node-pty's prebuilt ConPTY binaries, so no build tools are needed. *The Windows build hasn't been tested yet.*
 
+### Issue builds
+
+Building or running from an issue branch (`feat/42-dark-mode`) labels the app with the issue
+number: the file is `Asterism-<version>-issue-42`, the window says "Asterism #42", and it keeps its
+own settings and projects. That lets it run next to your everyday Asterism instead of focusing it.
+`ASTERISM_VARIANT=` (empty) builds a plain one.
+
 ### From source
 
 Requirements: Node 20+, npm, and `claude` on your PATH.
@@ -129,6 +136,7 @@ To open a pane's folder in your file manager, click the folder in its title bar 
 | `Ctrl+Shift+R` | Rename pane |
 | `Ctrl+Shift+F` | Search scrollback |
 | `Ctrl+Shift+E` | Open the pane's folder in the file manager |
+| `Ctrl+Shift+D` | Git diff of the repo the pane is working in (the `±` button does the same). It opens over the whole window; ⛶ puts it back into the pane |
 | `Ctrl+Shift+C` / `V`, right-click | Copy / paste |
 | `Ctrl+Shift+=` / `-` | Font size |
 | `Shift+Enter` | Newline in the Claude prompt |
@@ -159,7 +167,12 @@ colours stay readable.
 - **Fallbacks** for things Claude doesn't report:
   - Esc or Ctrl+C in a busy pane, followed by 1.5 s of quiet, marks the pane idle.
   - A working pane with 30 s of silence is marked ready. Claude's spinner repaints about every
-    250 ms, so silence means it has stopped.
+    250 ms, so silence means it has stopped. This is skipped while Claude has finished its reply
+    but background tasks (subagents, background shells) are still running; the pane stays working
+    until they finish.
+  - Background work that sends no hook events for 10 minutes (for example a background dev server)
+    marks the pane ready. Change the time, or set 0 to wait indefinitely, under *Background work
+    timeout* in ⚙ Settings.
 
 More detail is in [docs/DESIGN.md](docs/DESIGN.md).
 
