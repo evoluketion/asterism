@@ -992,6 +992,9 @@ function settingsModal() {
       <div style="flex:1"><label>Font size</label><input id="set-fs" type="number" min="8" max="32" value="${st.fontSize}"></div>
       <div style="flex:3"><label>Font family (blank = default)</label><input id="set-ff" value="${esc(st.fontFamily)}" spellcheck="false"></div>
     </div>
+    <div class="row">
+      <div style="flex:1"><label>Background work timeout (minutes, 0 = never)</label><input id="set-bgquiet" type="number" min="0" max="1440" value="${st.backgroundQuietMin ?? 10}"></div>
+    </div>
     <label class="check"><input id="set-notify" type="checkbox" ${st.notifyDesktop ? 'checked' : ''}> Desktop notification when a pane needs you and Asterism isn't focused</label>
     <label class="check"><input id="set-reopen" type="checkbox" ${st.reopenLast ? 'checked' : ''}> Reopen the last project at startup, resuming each pane's conversation</label>
     <label class="check"><input id="set-sound" type="checkbox" ${st.sound ? 'checked' : ''}> Sound when a pane you aren't looking at needs you</label>
@@ -1023,6 +1026,7 @@ function settingsModal() {
       notifyDesktop: q('#set-notify').checked,
       sound: q('#set-sound').checked,
       reopenLast: q('#set-reopen').checked,
+      backgroundQuietMin: (n => (Number.isFinite(n) ? Math.min(1440, Math.max(0, n)) : 10))(parseFloat(q('#set-bgquiet').value)),
     });
     applyFont();
     close();
