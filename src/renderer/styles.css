@@ -158,12 +158,13 @@ body.resizing .pane-term { pointer-events: none; }
 .pane-search input { width: 280px; padding: 4px 6px; }
 .pane-search-count { color: var(--muted); font-size: 11.5px; min-width: 60px; }
 .pane-diff {
-  position: absolute; inset: var(--bar-h) 0 0 0; z-index: 5; display: flex; flex-direction: column;
-  background: var(--panel); outline: none;
+  position: absolute; inset: calc(var(--bar-h) + 8px) 8px 8px 8px; z-index: 5; display: flex; flex-direction: column;
+  background: var(--panel); outline: none; border: 1px solid var(--line-strong); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.45); overflow: hidden;
 }
 .pane-diff.expanded {
-  position: fixed; inset: 24px; z-index: 15; border: 1px solid var(--line-strong); border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(0,0,0,.55), 0 0 0 100vmax rgba(0,0,0,.5); overflow: hidden;
+  position: fixed; inset: 24px; z-index: 15;
+  box-shadow: 0 12px 40px rgba(0,0,0,.55), 0 0 0 100vmax rgba(0,0,0,.5);
 }
 .diff-head {
   flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 4px 6px 4px 10px;

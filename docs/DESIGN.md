@@ -66,7 +66,7 @@ Drag dividers to resize. Zoom toggles one pane to fill the window.
   clicking the cwd opens it in the file manager.
 - Git diff: `±` / Ctrl+Shift+D overlays the pane with `git diff HEAD` (staged + unstaged, untracked by
   name) for the repo containing the pane's cwd, so worktrees each show their own. Read-only, refreshed on
-  demand. Opens over the whole window; ⛶ docks it into the pane.
+  demand. Opens inset inside the pane; ⛶ expands it over the whole window (one at a time).
 - Toolbar: + Claude pane, + shell pane, layout picker, project menu, waiting counter.
 - Hotkeys (app-level, so they never collide with Claude's TUI):
   Ctrl+Shift+Space jump to longest-waiting pane · Ctrl+Shift+N new Claude pane ·
