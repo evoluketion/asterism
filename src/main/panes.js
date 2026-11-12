@@ -31,16 +31,17 @@ class PaneManager extends EventEmitter {
 
   // The process is spawned on the first resize from the renderer, so it starts at the pane's real
   // size: an early resize makes ConPTY repaint Claude's TUI and duplicate lines.
-  create({ kind = 'claude', name, cwd, args = [], resume = null }) {
+  create({ kind = 'claude', name, cwd, args = [], resume = null, appendSystemPrompt = null }) {
     const id = `p${++this.seq}`;
     if (!cwd || !isDir(cwd)) cwd = shell.homeDir();
     if (resume && !sessionSaved(resume)) resume = null;
+    if (kind !== 'claude' || typeof appendSystemPrompt !== 'string' || !appendSystemPrompt.trim()) appendSystemPrompt = null;
     name = cleanName(name);
     const pane = {
-      id, kind, cwd, proc: null, resume,
+      id, kind, cwd, proc: null, resume, appendSystemPrompt,
       name: name || defaultName(cwd, kind),
       autoName: !name,
-      args, branch: null,
+      args, branch: null, openedAt: Date.now(),
       status: new PaneStatus(kind),
       buf: '', flushTimer: null, alive: true, startTimer: null, earlyInput: '',
     };
@@ -57,15 +58,16 @@ class PaneManager extends EventEmitter {
     const sh = settings.shell || shell.defaultShell();
     let proc;
     try {
-      const { binDir, initDir } = claudeConfig.preparePane({
+      const { binDir, initDir, promptFile } = claudeConfig.preparePane({
         runtimeDir: this.runtimeDir, port: this.server.port, token: this.server.tokenFor(pane.id),
-        paneId: pane.id, claudeCommand: settings.claudeCommand,
+        paneId: pane.id, claudeCommand: settings.claudeCommand, appendSystemPrompt: pane.appendSystemPrompt,
       });
       let startup = null;
       if (pane.kind === 'claude') {
         startup = ['claude'];
         if (pane.name) startup.push('-n', pane.name);
         if (pane.resume) startup.push('--resume', pane.resume);
+        if (promptFile) startup.push('--append-system-prompt-file', promptFile);
         startup.push(...pane.args);
       }
       const { args, env } = shell.buildLaunch({ shell: sh, paneId: pane.id, binDir, initDir, startup });
@@ -206,7 +208,7 @@ class PaneManager extends EventEmitter {
   snapshot(pane) {
     const s = pane.status.toJSON();
     if (s.lastReply && s.lastReply.length > REPLY_MAX) s.lastReply = s.lastReply.slice(0, REPLY_MAX) + '…';
-    return { id: pane.id, name: pane.name, autoName: pane.autoName, kind: pane.kind, cwd: s.claudeCwd || pane.cwd, branch: pane.branch, alive: pane.alive, args: pane.args, ...s };
+    return { id: pane.id, name: pane.name, autoName: pane.autoName, kind: pane.kind, cwd: s.claudeCwd || pane.cwd, branch: pane.branch, openedAt: pane.openedAt, alive: pane.alive, args: pane.args, ...s };
   }
 
   list() {
