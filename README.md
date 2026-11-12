@@ -249,7 +249,7 @@ across automatically the first time Asterism starts.
 ```bash
 npm test     # unit tests: layout, status rules, server and MCP, settings store, pane names,
              # session resume, git, pull requests, completed-pane archive, shell PATH, issue-build variants
-npm run icon # re-render build/icon.png and src/assets/icon.png from build/icon.svg
+npm run icon # re-render build/icon.png and src/assets/icon.{png,ico} from build/icon.svg
 
 # The whole app with stand-in Claude panes (test/fake-claude.js fires hooks like Claude Code does)
 ASTERISM_TEST=demo ASTERISM_USER_DATA=/tmp/asterism-test npx electron .
