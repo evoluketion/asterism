@@ -4,6 +4,7 @@
 // generated and fires the hooks exactly as Claude Code would (exec-form SessionStart, HTTP hooks),
 // so the whole pipeline is exercised without spending tokens.
 // Commands typed into it: work, tool <name>, perm, ask, done <text>, fail, mcp, quit
+// `-p --resume <id>` prints a canned summary instead; ASTERISM_FAKE_SUMMARY_FAIL=1 makes it fail.
 
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -11,6 +12,17 @@ const readline = require('readline');
 
 const argv = process.argv.slice(2);
 const opt = k => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : null; };
+
+if (argv.includes('-p')) {
+  let prompt = '';
+  process.stdin.on('data', d => { prompt += d; });
+  process.stdin.on('end', () => {
+    if (process.env.ASTERISM_FAKE_SUMMARY_FAIL) { process.stderr.write('summary failed\n'); process.exit(1); }
+    process.stdout.write(`Fake summary of ${opt('--resume')} (${prompt.length} chars of prompt)\n`);
+    process.exit(0);
+  });
+  return;
+}
 const settings = JSON.parse(fs.readFileSync(opt('--settings'), 'utf8'));
 const mcp = JSON.parse(fs.readFileSync(opt('--mcp-config'), 'utf8')).mcpServers.asterism;
 const sessionId = opt('--resume') || 'fake-' + Math.random().toString(36).slice(2, 10);

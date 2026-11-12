@@ -97,3 +97,40 @@ test('a shell pane running Claude clears to the Claude-style folder name', () =>
     assert.strictEqual(manager.get(id).name, path.basename(dir));
   });
 });
+
+test('a pane records when it was opened', () => {
+  withManager((manager, dir) => {
+    const before = Date.now();
+    const snap = manager.create({ kind: 'claude', cwd: dir });
+    assert.strictEqual(typeof snap.openedAt, 'number');
+    assert.ok(snap.openedAt >= before);
+  });
+});
+
+test('an appended system prompt is written to a file passed to claude', { skip: process.platform === 'win32' }, () => {
+  const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'asterism-rt-'));
+  const manager = new PaneManager({
+    runtimeDir,
+    server: { port: 0, tokenFor: () => '' },
+    getSettings: () => ({ claudeCommand: 'claude', shell: '/bin/bash' }),
+  });
+  try {
+    const { id } = manager.create({ kind: 'claude', cwd: runtimeDir, appendSystemPrompt: 'Picking up the auth refactor.' });
+    manager.start(manager.get(id), 80, 24);
+    const rc = fs.readFileSync(path.join(runtimeDir, id, 'init', 'bashrc'), 'utf8');
+    const file = path.join(runtimeDir, id, 'system-prompt.md');
+    assert.ok(rc.includes(`--append-system-prompt-file ${file}`) || rc.includes(`--append-system-prompt-file '${file}'`), rc);
+    assert.strictEqual(fs.readFileSync(file, 'utf8'), 'Picking up the auth refactor.');
+    assert.strictEqual((fs.statSync(file).mode & 0o777).toString(8), '600');
+  } finally {
+    manager.killAll();
+    fs.rmSync(runtimeDir, { recursive: true, force: true });
+  }
+});
+
+test('an appended system prompt is ignored for shell panes and when blank', () => {
+  withManager((manager, dir) => {
+    assert.strictEqual(manager.get(manager.create({ kind: 'shell', cwd: dir, appendSystemPrompt: 'x' }).id).appendSystemPrompt, null);
+    assert.strictEqual(manager.get(manager.create({ kind: 'claude', cwd: dir, appendSystemPrompt: '  ' }).id).appendSystemPrompt, null);
+  });
+});

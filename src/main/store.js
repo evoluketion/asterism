@@ -16,11 +16,16 @@ const DEFAULTS = {
     backgroundQuietMin: 10, // background work with no hook events this long counts as done; 0 = never
     theme: 'asterism',
     themeBg: '#0b0e12',  // lets the window open in the theme's colour before the page loads
+    archiveCompleted: false,
+    summaryPrompt: '',   // empty: the built-in prompt
+    summaryModel: '',    // empty: Claude's own default model
   },
   // id -> { id, name, dir, layout }. The layout (panes, tree, preset) is saved as you work.
   projects: {},
   lastSession: null,
   recentDirs: [],
+  // Completed panes, newest first. Kept apart from projects because project:save rebuilds them.
+  archive: [],
 };
 
 // Most common folder among a layout's panes: the natural home folder for a project made from it.
@@ -44,9 +49,11 @@ function migrateWorkspaces(data) {
   }
 }
 
-function newProjectId() {
-  return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+function newId(prefix) {
+  return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
+
+const newProjectId = () => newId('p');
 
 class Store {
   constructor(dir) {
@@ -57,6 +64,7 @@ class Store {
       this.data = { ...this.data, ...loaded, settings: { ...DEFAULTS.settings, ...(loaded.settings || {}) } };
     } catch {}
     migrateWorkspaces(this.data);
+    if (!Array.isArray(this.data.archive)) this.data.archive = [];
     this.saveTimer = null;
   }
 
@@ -79,6 +87,17 @@ class Store {
     this.scheduleSave();
   }
 
+  setArchive(list) {
+    this.data.archive = list;
+    this.saveNow();
+    return list;
+  }
+
+  addArchived(entry) { return this.setArchive([entry, ...this.data.archive]); }
+  updateArchived(id, patch) { return this.setArchive(this.data.archive.map(e => (e.id === id ? { ...e, ...patch } : e))); }
+  removeArchived(id) { return this.setArchive(this.data.archive.filter(e => e.id !== id)); }
+  dropArchivedForProject(projectId) { return this.setArchive(this.data.archive.filter(e => e.project !== projectId)); }
+
   scheduleSave() {
     clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => this.saveNow(), 300);
@@ -93,4 +112,4 @@ class Store {
   }
 }
 
-module.exports = { Store, commonDir, newProjectId };
+module.exports = { Store, commonDir, newId, newProjectId };

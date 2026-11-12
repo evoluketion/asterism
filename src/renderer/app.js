@@ -32,6 +32,8 @@ const S = {
   project: null,        // id of the active project, or null
   lastSession: null,
   recentDirs: [],
+  archive: [],          // completed panes, newest first
+  defaults: {},         // built-in values of settings that can be reset
   home: '',
   restoring: false,
   onModalDismiss: null, // undo a live preview when a modal is dismissed
@@ -86,6 +88,7 @@ function createView(snap) {
       <span class="pane-chip"></span>
       <button class="pane-btn restart hidden" title="Start Claude again, resuming this conversation">↻ Claude</button>
       <button class="pane-btn diff" title="Git diff (Ctrl+Shift+D)">±</button>
+      <button class="pane-btn done" title="Mark as completed: close the pane and keep it in the completed history">✓</button>
       <button class="pane-btn zoom" title="Zoom (Ctrl+Shift+Enter)">⤢</button>
       <button class="pane-btn close" title="Close (Ctrl+Shift+W)">✕</button>
     </div>
@@ -160,6 +163,7 @@ function createView(snap) {
   const metaEl = bar.querySelector('.pane-meta');
   metaEl.addEventListener('click', e => { e.stopPropagation(); api.openDir(view.id); });
   metaEl.addEventListener('dblclick', e => e.stopPropagation());
+  bar.querySelector('.done').addEventListener('click', e => { e.stopPropagation(); completePane(view.id); });
   bar.addEventListener('dblclick', e => {
     if (e.target.classList.contains('pane-name')) renamePrompt(view.id);
     else if (!e.target.closest('button')) toggleZoom(view.id);
@@ -222,12 +226,16 @@ function disposeView(id) {
   view.el.remove();
 }
 
+function confirmClose(view) {
+  const st = view.status.state;
+  return !['working', 'permission', 'question'].includes(st) ||
+    confirm(`"${view.status.name}" is ${STATE_LABEL[st].toLowerCase()}. Close it anyway?`);
+}
+
 function closePane(id, { force = false } = {}) {
   const view = S.panes.get(id);
   if (!view) return;
-  const st = view.status.state;
-  if (!force && ['working', 'permission', 'question'].includes(st) &&
-      !confirm(`"${view.status.name}" is ${STATE_LABEL[st].toLowerCase()}. Close it anyway?`)) return;
+  if (!force && !confirmClose(view)) return;
   const order = L.leafIds(S.tree);
   const idx = order.indexOf(id);
   disposeView(id);
@@ -238,6 +246,25 @@ function closePane(id, { force = false } = {}) {
   const rest = L.leafIds(S.tree);
   if (rest.length) focusPane(rest[Math.min(idx, rest.length - 1)]);
   else S.focused = null;
+}
+
+// Records the pane in the completed history, then closes it. Any summary arrives later.
+async function completePane(id) {
+  const view = S.panes.get(id);
+  if (!view || view.completing || view.status.kind !== 'claude' || !confirmClose(view)) return;
+  view.completing = true;
+  let res;
+  try {
+    res = await api.completePane(id, S.project);
+  } catch (err) {
+    view.completing = false;
+    toast(`Could not mark as completed: ${err.message || err}`);
+    return;
+  }
+  S.archive = res.list;
+  closePane(id, { force: true });
+  const msg = res.summarised ? 'Summarising for completed history…' : 'Marked as completed';
+  toast(res.reason ? `${msg}. ${res.reason}` : msg, { info: true });
 }
 
 async function restartPane(id) {
@@ -269,9 +296,9 @@ function renamePrompt(id) {
   });
 }
 
-function toast(msg) {
+function toast(msg, { info = false } = {}) {
   const t = document.createElement('div');
-  t.className = 'toast';
+  t.className = info ? 'toast info' : 'toast';
   t.textContent = msg;
   document.body.appendChild(t);
   setTimeout(() => t.remove(), 6000);
@@ -619,6 +646,10 @@ function shortPath(p) {
   return p;
 }
 
+function baseName(p) {
+  return (p || '').split(/[\\/]/).filter(Boolean).pop() || '';
+}
+
 function ago(ms) {
   const s = Math.max(0, Math.round(ms / 1000));
   if (s < 60) return `${s}s`;
@@ -682,6 +713,7 @@ function updateBar(view) {
   }
   if (['ready', 'permission', 'question', 'working', 'error'].includes(state)) label += ` · ${ago(now - s.since)}`;
   chip.textContent = label;
+  view.bar.querySelector('.done').classList.toggle('hidden', s.kind !== 'claude');
   view.bar.querySelector('.restart').classList.toggle('hidden', !(s.kind === 'claude' && (state === 'shell' || state === 'exited')));
 }
 
@@ -908,7 +940,7 @@ function leaveProject() {
 
 async function createProject({ name, dir, adopt }) {
   dir = dir.trim();
-  name = name.trim() || dir.split(/[\\/]/).filter(Boolean).pop() || 'project';
+  name = name.trim() || baseName(dir) || 'project';
   const res = await api.saveProject({ name, dir, layout: null });
   S.projects = res.projects;
   if (adopt) {
@@ -926,6 +958,7 @@ async function deleteProject(id) {
   const p = S.projects[id];
   if (!p || !confirm(`Delete project "${p.name}"? Its folder and Claude conversations are not touched.`)) return false;
   S.projects = await api.deleteProject(id);
+  S.archive = S.archive.filter(e => e.project !== id);
   if (S.project === id) { S.project = null; updateProjectUi(); renderLayout(); }
   return true;
 }
@@ -954,6 +987,11 @@ function renderEmpty() {
     restore.textContent = lsProj ? `Reopen ${lsProj.name}` : `Restore last session (${ls.panes.length} pane${ls.panes.length > 1 ? 's' : ''})`;
     restore.onclick = reopenLast;
   }
+  const done = projectArchive().length;
+  const completed = $('#empty-completed');
+  completed.classList.toggle('hidden', !done);
+  completed.textContent = `✓ Completed panes (${done})`;
+  completed.onclick = completedModal;
   const box = $('#empty-projects');
   box.replaceChildren(...(p ? [] : Object.values(S.projects).filter(x => x !== lsProj).sort((a, b) => a.name.localeCompare(b.name)).map(proj => {
     const b = document.createElement('button');
@@ -1056,8 +1094,10 @@ function projectsPopover() {
     const adoptable = !cur && S.panes.size > 0;
     const startDir = (adoptable && commonPaneDir()) || S.recentDirs[0] || S.home;
     const count = p => ((p.layout && p.layout.panes) || []).length;
+    const done = projectArchive().length;
     pop.innerHTML = `
       <h3>Projects</h3>
+      ${done ? `<div class="list"><button id="pj-completed">✓ Completed panes (${done})…</button></div>` : ''}
       ${cur ? `<span class="muted">New Claude panes start in <b>${esc(shortPath(cur.dir))}</b>.</span>
         <div class="row"><button id="pj-edit">Edit ${esc(cur.name)}…</button><button id="pj-leave">Leave project</button></div>` : ''}
       ${canRestore ? `<div class="list"><button id="pj-last">↻ Restore last session (${ls.panes.length} panes)</button></div>` : ''}
@@ -1070,6 +1110,7 @@ function projectsPopover() {
       <div class="actions"><button id="pj-create" class="primary">Create</button></div>
       <span class="muted">A project is a folder and its panes. New panes open in the folder, and the layout is saved as you work.</span>`;
     const q = s => pop.querySelector(s);
+    if (q('#pj-completed')) q('#pj-completed').onclick = () => { hidePopover(); completedModal(); };
     if (q('#pj-edit')) q('#pj-edit').onclick = () => { hidePopover(); projectModal(cur.id); };
     if (q('#pj-leave')) q('#pj-leave').onclick = () => { hidePopover(); leaveProject(); };
     if (q('#pj-last')) q('#pj-last').onclick = () => { hidePopover(); openLayout(ls, { resume: true }); };
@@ -1124,6 +1165,58 @@ function projectModal(id) {
   q('#pm-name').focus();
 }
 
+/** The completed history of the active project, or of loose panes outside any project. */
+function projectArchive() {
+  return S.archive.filter(e => e.project === S.project);
+}
+
+const entryName = e => e.name || baseName(e.cwd) || e.cwd;
+
+function completedModal() {
+  const m = $('#modal');
+  const list = projectArchive();
+  const p = activeProject();
+  // Re-renders as summaries arrive, so keep whichever summaries the user has expanded.
+  const expanded = new Set([...m.querySelectorAll('.completed details[open]')].map(d => d.dataset.id));
+  const row = (e, i) => {
+    const when = new Date(e.completedAt);
+    const time = `<span class="done-time" title="Completed ${esc(when.toLocaleString())}">${esc(when.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }))}</span>`;
+    const del = `<button data-i="${i}" class="cm-del" title="Remove from the history">✕</button>`;
+    const where = [esc(shortPath(e.cwd)), e.branch ? `⎇ ${esc(e.branch)}` : ''].filter(Boolean).join(' · ');
+    const head = `<b>${esc(entryName(e))}</b> <span class="muted" title="${esc(e.cwd)}">${where}</span><span class="spacer"></span>${time}`;
+    if (e.summaryState === 'none') return `<div class="done-row"><div class="done-head">${head}${del}</div></div>`;
+    const open = `<button data-i="${i}" class="cm-open primary" ${e.summaryState === 'pending' ? 'disabled' : ''} title="New Claude pane in this folder, given the summary">Reopen</button>`;
+    const body = e.summaryState === 'pending' ? '<span class="muted">Summarising…</span>'
+      : `<details class="done-summary" data-id="${esc(e.id)}" ${expanded.has(e.id) ? 'open' : ''}><summary>Summary${e.summaryState === 'fallback' ? ' <span class="muted">(draft — Claude summary failed)</span>' : ''}</summary><div>${esc(e.summary)}</div></details>`;
+    return `<div class="done-row"><div class="done-head">${head}${open}${del}</div>${body}</div>`;
+  };
+  m.innerHTML = `
+    <h2>Completed panes${p ? ` · ${esc(p.name)}` : ''}</h2>
+    <div class="completed">${list.length ? list.map(row).join('') : '<span class="muted">Nothing completed yet.</span>'}</div>
+    <div class="actions"><button id="cm-close">Close</button></div>`;
+  $('#modal-backdrop').classList.remove('hidden');
+  const close = () => $('#modal-backdrop').classList.add('hidden');
+  m.querySelector('#cm-close').onclick = close;
+  m.querySelectorAll('.cm-open').forEach(b => { b.onclick = () => { close(); reopenArchived(list[b.dataset.i]); }; });
+  m.querySelectorAll('.cm-del').forEach(b => {
+    b.onclick = async () => {
+      S.archive = await api.removeArchived(list[b.dataset.i].id);
+      completedModal();
+      if (!S.panes.size) renderEmpty();
+    };
+  });
+}
+
+function completedModalOpen() {
+  return !$('#modal-backdrop').classList.contains('hidden') && !!$('#modal .completed');
+}
+
+/** A fresh Claude session in the entry's folder, given its summary. The entry stays in the history. */
+function reopenArchived(entry) {
+  if (!entry || entry.summaryState === 'none' || entry.summaryState === 'pending') return null;
+  return newPane({ kind: 'claude', name: entry.name || undefined, cwd: entry.cwd, context: entry.summary });
+}
+
 const SHORTCUTS = [
   ['Ctrl+Shift+Space', 'Jump to the pane that has waited longest (press again to cycle)'],
   ['Ctrl+Shift+N', 'New Claude pane in the project folder (asks for a folder outside a project)'],
@@ -1169,6 +1262,13 @@ function settingsModal() {
     <label class="check"><input id="set-notify" type="checkbox" ${st.notifyDesktop ? 'checked' : ''}> Desktop notification when a pane needs you and Asterism isn't focused</label>
     <label class="check"><input id="set-reopen" type="checkbox" ${st.reopenLast ? 'checked' : ''}> Reopen the last project at startup, resuming each pane's conversation</label>
     <label class="check"><input id="set-sound" type="checkbox" ${st.sound ? 'checked' : ''}> Sound when a pane you aren't looking at needs you</label>
+    <label class="check"><input id="set-archive" type="checkbox" ${st.archiveCompleted ? 'checked' : ''}> Summarise completed panes with Claude so they can be reopened later (uses tokens)</label>
+    <div id="set-archive-opts" class="sub ${st.archiveCompleted ? '' : 'hidden'}">
+      <div class="row"><label style="flex:1">Summary prompt</label><a href="#" id="set-prompt-reset">Reset to default</a></div>
+      <textarea id="set-prompt" rows="5" spellcheck="false">${esc(st.summaryPrompt || S.defaults.summaryPrompt)}</textarea>
+      <label>Summary model</label>
+      <input id="set-model" value="${esc(st.summaryModel)}" spellcheck="false" placeholder="Claude's default">
+    </div>
     <h2 style="margin-top:8px">Shortcuts</h2>
     <div class="keys">${SHORTCUTS.map(([k, d]) => `<kbd>${k}</kbd><span>${d}</span>`).join('')}</div>
     <div class="actions"><span class="muted" style="margin-right:auto;align-self:center">${esc(S.appName)} v${esc(S.version)}</span><button id="set-cancel">Cancel</button><button id="set-save" class="primary">Save</button></div>`;
@@ -1183,6 +1283,8 @@ function settingsModal() {
       applyTheme(theme);
     };
   });
+  q('#set-archive').onchange = () => q('#set-archive-opts').classList.toggle('hidden', !q('#set-archive').checked);
+  q('#set-prompt-reset').onclick = e => { e.preventDefault(); q('#set-prompt').value = S.defaults.summaryPrompt || ''; };
   S.onModalDismiss = () => applyTheme(st.theme);
   const close = () => { S.onModalDismiss = null; $('#modal-backdrop').classList.add('hidden'); };
   q('#set-cancel').onclick = () => { applyTheme(st.theme); close(); };
@@ -1198,6 +1300,10 @@ function settingsModal() {
       sound: q('#set-sound').checked,
       reopenLast: q('#set-reopen').checked,
       backgroundQuietMin: (n => (Number.isFinite(n) ? Math.min(1440, Math.max(0, n)) : 10))(parseFloat(q('#set-bgquiet').value)),
+      archiveCompleted: q('#set-archive').checked,
+      // Saved blank while it matches the built-in prompt, so a newer built-in prompt still applies.
+      summaryPrompt: (p => (p === (S.defaults.summaryPrompt || '').trim() ? '' : p))(q('#set-prompt').value.trim()),
+      summaryModel: q('#set-model').value.trim(),
     });
     applyFont();
     close();
@@ -1377,6 +1483,11 @@ setInterval(() => { for (const v of S.panes.values()) updateBar(v); updateWaitin
     settings: init.settings, projects: init.projects || {}, lastSession: init.lastSession,
     recentDirs: init.recentDirs || [], home: init.home, version: init.version || '',
     appName: init.appName || 'Asterism',
+    archive: init.archive || [], defaults: init.defaults || {},
+  });
+  api.onArchiveChanged(list => {
+    S.archive = list;
+    if (completedModalOpen()) completedModal();
   });
   $('.brand').textContent = S.appName;
   buildToolbar();
@@ -1389,7 +1500,7 @@ setInterval(() => { for (const v of S.panes.values()) updateBar(v); updateWaitin
   if (init.test) {
     window.__asterismTest = {
       newPane, newPanePopover, applyTheme, settingsModal, setPreset, focusPane, setPeek, closePane, jumpToWaiting, toggleZoom, toggleDiff, openLayout, serializeLayout,
-      openProject, leaveProject, createProject, projectsPopover,
+      openProject, leaveProject, createProject, projectsPopover, completedModal,
       state: () => ({
         order: L.leafIds(S.tree), focused: S.focused, preset: S.preset, zoomed: S.zoomed, project: S.project,
         panes: [...S.panes.values()].map(v => ({ id: v.id, state: v.el.dataset.state, chip: v.bar.querySelector('.pane-chip').textContent, cols: v.term.cols, rows: v.term.rows, termBg: v.term.options.theme && v.term.options.theme.background, screen: readScreen(v.term, 200) })),

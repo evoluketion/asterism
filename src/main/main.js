@@ -4,7 +4,10 @@ const path = require('path');
 const { app, BrowserWindow, ipcMain, dialog, Notification, clipboard, shell: eShell, Menu } = require('electron');
 const { Store, newProjectId } = require('./store');
 const { createServer } = require('./server');
-const { PaneManager, isDir } = require('./panes');
+const { PaneManager, isDir, sessionSaved } = require('./panes');
+const archive = require('./archive');
+const shell = require('./shell');
+const { readTurns } = require('./transcript');
 const { createToolHandler } = require('./mcp-tools');
 const { detectVariant } = require('./variant');
 
@@ -124,6 +127,8 @@ function registerIpc() {
     projects: store.data.projects,
     lastSession: store.data.lastSession,
     recentDirs: store.data.recentDirs,
+    archive: store.data.archive,
+    defaults: { summaryPrompt: archive.SUMMARY_PROMPT },
     home: require('os').homedir(),
     platform: process.platform,
     version: app.getVersion(),
@@ -131,7 +136,10 @@ function registerIpc() {
     test: !!process.env.ASTERISM_TEST,
   }));
   handle('pane:create', (_e, opts) => {
-    const snap = manager.create(opts || {});
+    // A pane reopened from the completed history is a fresh session given the summary, never a resume.
+    const { context, ...rest } = opts || {};
+    if (typeof context === 'string' && context.trim()) Object.assign(rest, { resume: null, appendSystemPrompt: archive.contextPrompt(context) });
+    const snap = manager.create(rest);
     if (snap.kind === 'claude' || snap.kind === 'shell') store.addRecentDir(snap.cwd);
     return snap;
   });
@@ -179,7 +187,7 @@ function registerIpc() {
     const next = { ...store.data.projects };
     delete next[id];
     store.update({ projects: next });
-    store.saveNow();
+    store.dropArchivedForProject(id);
     return next;
   });
   // The open panes, saved as you work: as the last session, and into the active project if there is one.
@@ -190,6 +198,8 @@ function registerIpc() {
     store.update(patch);
     store.saveNow();
   });
+  handle('archive:complete', (_e, id, projectId) => completePane(id, projectId || null));
+  handle('archive:remove', (_e, entryId) => store.removeArchived(entryId));
   handle('clipboard:read', () => clipboard.readText());
   listen('clipboard:write', (_e, text) => clipboard.writeText(String(text)));
   listen('open:external', (_e, url) => { if (/^https?:\/\//.test(url)) eShell.openExternal(url); });
@@ -206,6 +216,49 @@ function registerIpc() {
     const cb = screenRequests.get(reqId);
     if (cb) { screenRequests.delete(reqId); cb(String(text)); }
   });
+}
+
+// Records a pane in the completed history. The summary, when there is one, is filled in after
+// this returns so the pane can close straight away.
+function completePane(id, projectId) {
+  const pane = manager.get(id);
+  if (!pane) return { list: store.data.archive, summarised: false, reason: 'The pane is already closed.' };
+  const snap = manager.snapshot(pane);
+  const transcriptPath = pane.status.transcriptPath;
+  const settings = store.settings;
+  const summarised = !!settings.archiveCompleted && sessionSaved(snap.sessionId);
+  const reason = settings.archiveCompleted && !summarised ? 'Nothing to summarise: the conversation was never saved.' : null;
+  const entry = archive.buildEntry(snap, { project: projectId, summarised });
+  const list = store.addArchived(entry);
+  if (!summarised) return { list, summarised, reason };
+  runSummary(entry, { transcriptPath, lastReply: snap.lastReply });
+  return { list, summarised };
+}
+
+const summaryRuns = new Set();
+
+// Fills in a pending entry's summary, falling back to a draft from the transcript. A run stopped by
+// quitting leaves the entry pending, and it is summarised again at the next start.
+async function runSummary(entry, { transcriptPath = null, lastReply = null } = {}) {
+  const settings = store.settings;
+  const ctrl = new AbortController();
+  summaryRuns.add(ctrl);
+  const env = { ...shell.claudeEnv(), PATH: await shell.shellPath(settings.shell || shell.defaultShell()) };
+  archive.summarise({
+    env,
+    claudeCommand: settings.claudeCommand,
+    sessionId: entry.sessionId,
+    cwd: entry.cwd,
+    prompt: settings.summaryPrompt,
+    model: settings.summaryModel,
+    signal: ctrl.signal,
+  }).then(
+    summary => ({ summaryState: 'done', summary }),
+    async () => (ctrl.signal.aborted ? null : { summaryState: 'fallback', summary: archive.draftSummary(await readTurns(transcriptPath), lastReply) }),
+  ).then(patch => {
+    if (patch) send('archive:changed', store.updateArchived(entry.id, patch));
+  }).catch(err => console.error('Could not save the summary:', err))
+    .finally(() => summaryRuns.delete(ctrl));
 }
 
 app.whenReady().then(async () => {
@@ -232,6 +285,7 @@ app.whenReady().then(async () => {
 
   registerIpc();
   createWindow();
+  for (const e of store.data.archive) if (e.summaryState === 'pending') runSummary(e);
 
   if (process.env.ASTERISM_TEST) {
     require('./selftest').run({ app, win, manager, server, store, send, readScreen });
@@ -247,6 +301,7 @@ app.on('window-all-closed', () => app.quit());
 app.on('will-quit', () => { if (store) { try { store.saveNow(); } catch {} } });
 
 app.on('before-quit', () => {
+  for (const ctrl of summaryRuns) ctrl.abort();
   if (store) { try { store.saveNow(); } catch {} }
   if (manager) manager.killAll();
 });

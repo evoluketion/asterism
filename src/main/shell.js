@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { spawn } = require('child_process');
 
 function findOnPath(exe) {
   const dirs = (process.env.PATH || '').split(path.delimiter);
@@ -129,19 +130,66 @@ const SESSION_MARKERS = [
   'ELECTRON_RUN_AS_NODE', 'ELECTRON_NO_ATTACH_CONSOLE', 'CHROME_DESKTOP',
 ];
 
-function ptyEnv(paneId) {
+// If Asterism was launched from inside Claude Code these would make claude think it is nested.
+// Other CLAUDE_CODE_* vars (e.g. provider config) are the user's and are kept.
+function claudeEnv() {
   const env = { ...process.env };
-  // If Asterism was launched from inside Claude Code these would make claude think it is nested.
-  // Other CLAUDE_CODE_* vars (e.g. provider config) are the user's and are kept.
   for (const k of SESSION_MARKERS) delete env[k];
+  return env;
+}
+
+function ptyEnv(paneId) {
+  const env = claudeEnv();
   env.TERM = 'xterm-256color';
   env.COLORTERM = 'truecolor';
   env.ASTERISM_PANE_ID = paneId;
   return env;
 }
 
+const ENV_MARK = '__ASTERISM_ENV__';
+const SHELL_PATH_TIMEOUT_MS = 5000;
+const shellPaths = new Map();
+
+/**
+ * PATH as `shell` sets it up when it starts in a pane, with any entries of Asterism's own PATH it
+ * lacks added after. A desktop launcher starts Asterism with a minimal PATH that often misses where
+ * claude lives (e.g. ~/.local/bin), so commands run outside a pane need this to find it. Read once
+ * per shell; falls back to Asterism's own PATH.
+ */
+function shellPath(shell) {
+  const own = process.env.PATH || '';
+  if (process.platform === 'win32') return Promise.resolve(own);
+  if (!shellPaths.has(shell)) {
+    shellPaths.set(shell, readShellPath(shell).then(p => mergePaths(p, own), () => own));
+  }
+  return shellPaths.get(shell);
+}
+
+function readShellPath(shell) {
+  return new Promise((resolve, reject) => {
+    let out = '';
+    // Interactive and login, so both kinds of rc file run. `env` prints PATH colon-joined in every
+    // shell (fish's "$PATH" would join with spaces), and the markers skip anything the rc files print.
+    const child = spawn(shell, ['-ilc', `echo ${ENV_MARK}; env; echo ${ENV_MARK}`], {
+      stdio: ['ignore', 'pipe', 'ignore'], env: claudeEnv(), timeout: SHELL_PATH_TIMEOUT_MS,
+    });
+    child.stdout.on('data', d => { out += d; });
+    child.on('error', reject);
+    child.on('close', () => {
+      const block = out.split(ENV_MARK)[1] || '';
+      const line = block.split('\n').find(l => l.startsWith('PATH='));
+      if (line) resolve(line.slice(5).trim()); else reject(new Error('No PATH from the shell'));
+    });
+  });
+}
+
+function mergePaths(first, rest) {
+  const parts = [...first.split(path.delimiter), ...rest.split(path.delimiter)].filter(Boolean);
+  return [...new Set(parts)].join(path.delimiter);
+}
+
 function homeDir() {
   return os.homedir();
 }
 
-module.exports = { defaultShell, shellFamily, buildLaunch, ptyEnv, homeDir, quotePosix, quotePwsh };
+module.exports = { defaultShell, shellFamily, buildLaunch, ptyEnv, claudeEnv, shellPath, homeDir, quotePosix, quotePwsh, quoteCmd };

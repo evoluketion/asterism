@@ -59,18 +59,26 @@ function writePrivate(file, content, mode = 0o600) {
 
 const qPosix = s => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
-// The claude command as it should appear in the shim: an absolute path is quoted, anything else
-// (e.g. "claude", or "node /path/fake.js") is used verbatim.
+// The claude command is either the path of one program (which may contain spaces), or a command
+// line such as "claude" or "node /path/fake.js".
+const isProgramPath = c => path.isAbsolute(c) && fs.existsSync(c);
+
+function claudeCommandParts(cmd) {
+  const c = (cmd || 'claude').trim();
+  return isProgramPath(c) ? [c] : c.split(/\s+/);
+}
+
+// The claude command as it should appear in the shim: a program path is quoted, a command line is used verbatim.
 function shimCommand(cmd, quote) {
   const c = (cmd || 'claude').trim();
-  return path.isAbsolute(c) && fs.existsSync(c) ? quote(c) : c;
+  return isProgramPath(c) ? quote(c) : c;
 }
 
 // Per-pane runtime files: hook settings, MCP config, and a `claude` shim that injects them.
 // The shim goes first on the pane's PATH, so any `claude` started in the pane — by Asterism or typed by
 // hand after a cd — reports its status. It removes its own folder from PATH before running the
 // real claude, so it never calls itself.
-function preparePane({ runtimeDir, port, token, paneId, claudeCommand }) {
+function preparePane({ runtimeDir, port, token, paneId, claudeCommand, appendSystemPrompt = null }) {
   const paneDir = path.join(runtimeDir, paneId);
   const binDir = path.join(paneDir, 'bin');
   fs.mkdirSync(binDir, { recursive: true });
@@ -78,6 +86,8 @@ function preparePane({ runtimeDir, port, token, paneId, claudeCommand }) {
   const mcpFile = path.join(paneDir, 'mcp.json');
   writePrivate(settingsFile, buildSettings({ port, token, paneId }));
   writePrivate(mcpFile, buildMcpConfig({ port, token, paneId }));
+  const promptFile = appendSystemPrompt ? path.join(paneDir, 'system-prompt.md') : null;
+  if (promptFile) writePrivate(promptFile, appendSystemPrompt);
 
   if (process.platform === 'win32') {
     const cmd = shimCommand(claudeCommand, c => `"${c}"`);
@@ -101,7 +111,7 @@ function preparePane({ runtimeDir, port, token, paneId, claudeCommand }) {
       '',
     ].join('\n'), 0o700);
   }
-  return { paneDir, binDir, initDir: path.join(paneDir, 'init') };
+  return { paneDir, binDir, initDir: path.join(paneDir, 'init'), promptFile };
 }
 
 function cleanup(runtimeDir, paneId) {
@@ -112,4 +122,4 @@ function cleanupAll(runtimeDir) {
   try { fs.rmSync(runtimeDir, { recursive: true, force: true }); } catch {}
 }
 
-module.exports = { buildSettings, buildMcpConfig, preparePane, cleanup, cleanupAll, MCP_TOOLS };
+module.exports = { buildSettings, buildMcpConfig, preparePane, cleanup, cleanupAll, claudeCommandParts, MCP_TOOLS };

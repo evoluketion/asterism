@@ -463,6 +463,94 @@ async function run({ app, win, manager, store }) {
     await sleep(300);
     check('…and Ctrl+Shift+N asks for a folder again', await popOpen());
     await js(`document.querySelector('#popover #np-cancel').click()`);
+
+    // Completed panes: ✓ records the pane in the history; with the setting on, Claude summarises it.
+    {
+      const archived = () => store.data.archive.filter(e => e.project === null);
+      const doneBtn = id => `document.querySelector('.pane[data-id=${JSON.stringify(id)}] .pane-btn.done')`;
+      const openClaude = async () => {
+        const id = await js(`window.__asterismTest.newPane(${JSON.stringify({ kind: 'claude', name: 'finished', cwd: root })})`);
+        await waitFor(() => stateOf(id) === 'idle');
+        type(id, 'work Ship the feature\r');
+        await waitFor(() => stateOf(id) === 'working');
+        type(id, 'done Shipped it.\r');
+        await waitFor(() => stateOf(id) === 'ready');
+        return id;
+      };
+      const complete = async id => {
+        const n = archived().length;
+        await js(`${doneBtn(id)}.click()`);
+        await waitFor(() => archived().length === n + 1 && !manager.get(id), 3000);
+        return archived()[0];
+      };
+
+      const shellId = await js(`window.__asterismTest.newPane(${JSON.stringify({ kind: 'shell', cwd: root })})`);
+      await sleep(300);
+      check('✓ is hidden on shell panes', await js(`${doneBtn(shellId)}.classList.contains('hidden')`));
+      await js(`window.__asterismTest.closePane(${JSON.stringify(shellId)}, { force: true })`);
+
+      store.setSettings({ archiveCompleted: true });
+      const c1 = await openClaude();
+      check('✓ is shown on Claude panes', !(await js(`${doneBtn(c1)}.classList.contains('hidden')`)));
+      const sid1 = manager.get(c1).status.sessionId;
+      saveTranscript(sid1);
+      const e1 = await complete(c1);
+      check('✓ closes the pane and records it as summarising', e1 && !manager.get(c1) && ['pending', 'done'].includes(e1.summaryState) && e1.sessionId === sid1, e1);
+      check('…then Claude\'s summary fills it in', await waitFor(() => archived()[0].summaryState === 'done'), archived()[0]);
+      const done1 = archived()[0];
+      check('…from a fork of the pane\'s session', new RegExp(`^Fake summary of ${sid1}`).test(done1.summary || ''), done1.summary);
+
+      await js('window.__asterismTest.completedModal()');
+      await sleep(200);
+      check('the completed history lists it with Reopen', await js(`!!document.querySelector('#modal .cm-open:not([disabled])') && document.querySelector('#modal .done-summary').textContent.includes('Fake summary')`));
+      check('…with its summary collapsed and a completed timestamp', await js(`!document.querySelector('#modal details.done-summary').open && !!document.querySelector('#modal .done-time').textContent.trim()`));
+      await js(`document.querySelector('#modal details.done-summary summary').click()`);
+      await sleep(100);
+      await shot('11-completed.png');
+      await js(`document.querySelector('#modal .cm-open').click()`);
+      await sleep(500);
+      const reopened = (await js('window.__asterismTest.state()')).order.slice(-1)[0];
+      const rp = manager.get(reopened);
+      check('Reopen starts a new Claude pane in the same folder with the summary', rp && rp.kind === 'claude' && rp.cwd === done1.cwd && (rp.appendSystemPrompt || '').includes(done1.summary) && !rp.resume, rp && { cwd: rp.cwd, prompt: rp.appendSystemPrompt, resume: rp.resume });
+      check('…as a fresh session', await waitFor(() => stateOf(reopened) === 'idle' && rp.status.sessionId && rp.status.sessionId !== sid1), rp.status.sessionId);
+      const ctxFile = path.join(manager.runtimeDir, reopened, 'system-prompt.md');
+      check('…given the summary as a system prompt file', fs.existsSync(ctxFile) && fs.readFileSync(ctxFile, 'utf8').includes(done1.summary));
+      check('…and the entry stays in the history', archived().some(e => e.id === done1.id));
+
+      // A failed summary falls back to a draft from the conversation.
+      process.env.ASTERISM_FAKE_SUMMARY_FAIL = '1';
+      const c2 = await openClaude();
+      saveTranscript(manager.get(c2).status.sessionId);
+      await complete(c2);
+      check('a failed summary falls back to a draft', await waitFor(() => archived()[0].summaryState === 'fallback'), archived()[0]);
+      check('…built from the last reply', /Shipped it\./.test(archived()[0].summary || ''), archived()[0].summary);
+      delete process.env.ASTERISM_FAKE_SUMMARY_FAIL;
+
+      // A session that was never saved has nothing to summarise.
+      const c3 = await js(`window.__asterismTest.newPane(${JSON.stringify({ kind: 'claude', cwd: root })})`);
+      await waitFor(() => stateOf(c3) === 'idle');
+      const e3 = await complete(c3);
+      check('an unsaved session is recorded with only its name and folder', e3 && e3.summaryState === 'none' && !('summary' in e3), e3);
+
+      // With the setting off, ✓ keeps only the name and folder.
+      store.setSettings({ archiveCompleted: false });
+      type(reopened, 'work More\r');
+      await waitFor(() => stateOf(reopened) === 'working');
+      type(reopened, 'done Ok.\r');
+      await waitFor(() => stateOf(reopened) === 'ready');
+      const e4 = await complete(reopened);
+      const keys = e4 ? Object.keys(e4).sort().join(',') : '';
+      check('setting off: ✓ records only the name and folder', keys === 'completedAt,cwd,id,name,project,summaryState' && e4.summaryState === 'none' && e4.name === 'finished', e4);
+      await js('window.__asterismTest.completedModal()');
+      await sleep(200);
+      const rows = await js(`[...document.querySelectorAll('#modal .done-row')].map(r => ({ open: !!r.querySelector('.cm-open'), text: r.textContent }))`);
+      check('…and the history shows it without Reopen', rows.length === archived().length && rows[0].open === false && rows[0].text.includes('finished'), rows);
+      await js(`document.querySelector('#modal .cm-del').click()`);
+      await sleep(300);
+      check('✕ removes an entry from the history', !archived().some(e => e.id === e4.id), archived().map(e => e.id));
+      await js(`document.querySelector('#modal #cm-close').click()`);
+      check('the empty screen offers the completed history', await js(`!document.querySelector('#empty-completed').classList.contains('hidden') && document.querySelector('#empty-completed').textContent.includes('(${archived().length})')`));
+    }
   }
 
   // README screenshots: four fake Claude panes in different states, inside a project. No shell
