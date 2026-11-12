@@ -228,4 +228,4 @@ function defaultName(cwd, kind) {
   return kind === 'shell' ? `${base} (shell)` : base;
 }
 
-module.exports = { PaneManager, sessionSaved };
+module.exports = { PaneManager, sessionSaved, isDir };

@@ -144,6 +144,9 @@ function createView(snap) {
   wireSearch(view);
   bar.querySelector('.close').addEventListener('click', e => { e.stopPropagation(); closePane(view.id); });
   bar.querySelector('.zoom').addEventListener('click', e => { e.stopPropagation(); toggleZoom(view.id); });
+  const metaEl = bar.querySelector('.pane-meta');
+  metaEl.addEventListener('click', e => { e.stopPropagation(); api.openDir(view.id); });
+  metaEl.addEventListener('dblclick', e => e.stopPropagation());
   bar.addEventListener('dblclick', e => {
     if (e.target.classList.contains('pane-name')) renamePrompt(view.id);
     else if (!e.target.closest('button')) toggleZoom(view.id);
@@ -487,7 +490,7 @@ function updateBar(view) {
   const meta = [shortPath(s.cwd), s.branch ? `⎇ ${s.branch}` : ''].filter(Boolean).join('  ');
   const metaEl = view.bar.querySelector('.pane-meta');
   metaEl.textContent = meta;
-  metaEl.title = s.cwd || '';
+  metaEl.title = s.cwd ? `${s.cwd} — click to open folder` : '';
 
   const replyEl = view.bar.querySelector('.pane-reply');
   let reply = '';

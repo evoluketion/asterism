@@ -26,6 +26,15 @@ async function run({ app, win, manager, store }) {
   };
   const stateOf = id => manager.get(id) && manager.get(id).status.state;
   const type = (id, s) => manager.panes.get(id).proc.write(s); // bypasses input acknowledgement
+  /** Runs fn with the file manager stubbed out, returning the folders it was asked to open. */
+  const withOpenPathStub = async fn => {
+    const { shell } = require('electron');
+    const real = shell.openPath;
+    const opened = [];
+    shell.openPath = async dir => { opened.push(dir); return ''; };
+    try { await fn(); } finally { shell.openPath = real; }
+    return opened;
+  };
 
   await new Promise(r => win.webContents.once('did-finish-load', r));
   await waitFor(() => js('!!window.__asterismTest'));
@@ -288,6 +297,14 @@ async function run({ app, win, manager, store }) {
     await js(`document.querySelector('#popover #rn-ok').click()`);
     await waitFor(async () => !(await popOpen('#rn')), 2000);
     check('…and confirming the unchanged name keeps it following the folder', manager.get(newId).autoName === true, manager.get(newId).name);
+    const opened = await withOpenPathStub(async () => {
+      const meta = `document.querySelector('.pane[data-id=${JSON.stringify(newId)}] .pane-meta')`;
+      await js(`${meta}.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+      await js(`${meta}.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`);
+      await sleep(300);
+    });
+    check('clicking the folder in the title bar opens it', opened[0] === root, opened);
+    check('…without renaming or zooming the pane', !(await popOpen('#rn')) && !(await js('window.__asterismTest.state()')).zoomed, await js('window.__asterismTest.state()'));
     type(newId, 'quit\r');
     await waitFor(() => stateOf(newId) === 'shell');
     await js(`window.__asterismTest.closePane(${JSON.stringify(newId)}, { force: true })`);
