@@ -99,7 +99,7 @@ function createView(snap) {
         <span class="diff-title"></span>
         <span class="diff-sum"></span>
         <button class="pane-btn diff-refresh" title="Refresh">⟳</button>
-        <button class="pane-btn diff-expand" title="Back into the pane">⛶</button>
+        <button class="pane-btn diff-expand" title="Expand to full window">⛶</button>
         <button class="pane-btn diff-close" title="Close (Esc)">✕</button>
       </div>
       <div class="diff-body"></div>
@@ -355,6 +355,8 @@ function wireDiff(view) {
 }
 
 function setDiffExpanded(box, on) {
+  // Expanded diffs all sit in the same spot, so only one may be expanded at a time.
+  if (on) for (const other of document.querySelectorAll('.pane-diff.expanded')) if (other !== box) setDiffExpanded(other, false);
   box.classList.toggle('expanded', on);
   box.querySelector('.diff-expand').title = on ? 'Back into the pane' : 'Expand to full window';
 }
@@ -369,7 +371,7 @@ function toggleDiff(id = S.focused) {
 function openDiff(view) {
   const box = view.el.querySelector('.pane-diff');
   box.classList.remove('hidden');
-  setDiffExpanded(box, true);
+  setDiffExpanded(box, false);
   box.querySelector('.diff-body').style.fontFamily = S.settings.fontFamily || DEFAULT_FONT;
   box.focus();
   loadDiff(view);

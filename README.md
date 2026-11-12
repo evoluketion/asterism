@@ -151,7 +151,7 @@ a project removes its entries.
 | `Ctrl+Shift+R` | Rename pane |
 | `Ctrl+Shift+F` | Search scrollback |
 | `Ctrl+Shift+E` | Open the pane's folder in the file manager |
-| `Ctrl+Shift+D` | Git diff of the repo the pane is working in (the `±` button does the same). It opens over the whole window; ⛶ puts it back into the pane |
+| `Ctrl+Shift+D` | Git diff of the repo the pane is working in (the `±` button does the same). It opens inside the pane; ⛶ expands it over the whole window and back |
 | `Ctrl+Shift+C` / `V`, right-click | Copy / paste |
 | `Ctrl+Shift+=` / `-` | Font size |
 | `Shift+Enter` | Newline in the Claude prompt |
