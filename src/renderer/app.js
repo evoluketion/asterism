@@ -1113,7 +1113,7 @@ function handleHotkey(e) {
   if (e.code === 'Tab') { cyclePane(e.shiftKey ? -1 : 1); return true; }
   if (!e.shiftKey) return false;
   // Held-down keys auto-repeat; never let that open, close or re-layout panes repeatedly.
-  if (e.repeat && ['KeyN', 'KeyO', 'KeyT', 'KeyW', 'KeyL', 'Enter', 'KeyR', 'KeyF', 'KeyH'].includes(e.code)) return true;
+  if (e.repeat && ['KeyN', 'KeyO', 'KeyT', 'KeyW', 'KeyL', 'Enter', 'KeyR', 'KeyF', 'KeyH', 'KeyE'].includes(e.code)) return true;
   const v = S.focused && S.panes.get(S.focused);
   const digit = /^Digit([1-9])$/.exec(e.code);
   if (digit) {
@@ -1139,6 +1139,7 @@ function handleHotkey(e) {
     }
     case 'KeyR': if (v) renamePrompt(v.id); return true;
     case 'KeyF': if (v) openSearch(v); return true;
+    case 'KeyE': if (v) api.openDir(v.id); return true;
     case 'KeyH': toggleToolbar(); return true;
     case 'KeyC': if (v && v.term.hasSelection()) { api.clipboardWrite(v.term.getSelection()); v.term.clearSelection(); } return true;
     case 'KeyV': if (v) api.clipboardRead().then(t => { if (t) v.term.paste(t); }); return true;

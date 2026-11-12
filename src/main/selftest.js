@@ -304,6 +304,12 @@ async function run({ app, win, manager, store }) {
       await sleep(300);
     });
     check('clicking the folder in the title bar opens it', opened[0] === root, opened);
+    const openedByKey = await withOpenPathStub(async () => {
+      await js(`window.__asterismTest.focusPane(${JSON.stringify(newId)})`);
+      await js(`window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE', key: 'E', ctrlKey: true, shiftKey: true, bubbles: true }))`);
+      await sleep(300);
+    });
+    check('Ctrl+Shift+E opens the focused pane\'s folder', openedByKey.length === 1 && openedByKey[0] === root, openedByKey);
     check('…without renaming or zooming the pane', !(await popOpen('#rn')) && !(await js('window.__asterismTest.state()')).zoomed, await js('window.__asterismTest.state()'));
     type(newId, 'quit\r');
     await waitFor(() => stateOf(newId) === 'shell');
