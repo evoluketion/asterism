@@ -19,9 +19,15 @@ const variant = process.env.ASTERISM_VARIANT ?? (app.isPackaged
   ? require(path.join(app.getAppPath(), 'package.json')).asterismVariant
   : detectVariant(app.getAppPath())) ?? null;
 const APP_NAME = variant ? `Asterism #${variant}` : 'Asterism';
+const APP_USER_MODEL_ID = variant ? `dev.local.asterism.issue-${variant}` : 'dev.local.asterism';
+
+/** Windows reads the .ico from disk, so a packaged build uses the copy unpacked beside app.asar. */
+const WINDOW_ICON = process.platform === 'win32'
+  ? path.join(__dirname, '..', 'assets', 'icon.ico').replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`)
+  : path.join(__dirname, '..', 'assets', 'icon.png');
 
 app.setName(APP_NAME);
-if (process.platform === 'win32') app.setAppUserModelId(variant ? `dev.local.asterism.issue-${variant}` : 'dev.local.asterism');
+if (process.platform === 'win32') app.setAppUserModelId(APP_USER_MODEL_ID);
 if (process.env.ASTERISM_USER_DATA) app.setPath('userData', process.env.ASTERISM_USER_DATA);
 else app.setPath('userData', path.join(app.getPath('appData'), variant ? `Asterism-issue-${variant}` : 'Asterism'));
 
@@ -65,6 +71,22 @@ function readScreen(paneId, lines) {
   });
 }
 
+/**
+ * The taskbar groups windows by AppUserModelID and takes that group's icon from the relaunch
+ * properties, which Windows only reads when a relaunch command is set. A portable build runs from a
+ * temporary folder, so it points at the portable .exe, which has the icon embedded.
+ */
+function setTaskbarDetails(w) {
+  const exe = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+  w.setAppDetails({
+    appId: APP_USER_MODEL_ID,
+    appIconPath: app.isPackaged ? exe : WINDOW_ICON,
+    appIconIndex: 0,
+    relaunchCommand: app.isPackaged ? `"${exe}"` : `"${exe}" "${app.getAppPath()}"`,
+    relaunchDisplayName: APP_NAME,
+  });
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1600,
@@ -73,7 +95,7 @@ function createWindow() {
     minHeight: 400,
     backgroundColor: /^#[0-9a-f]{6}$/i.test(store.settings.themeBg || '') ? store.settings.themeBg : '#0b0e12',
     title: APP_NAME,
-    icon: path.join(__dirname, '..', 'assets', 'icon.png'),
+    icon: WINDOW_ICON,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload.js'),
@@ -84,6 +106,7 @@ function createWindow() {
       autoplayPolicy: 'no-user-gesture-required',
     },
   });
+  if (process.platform === 'win32') setTaskbarDetails(win);
   // No default menu: its accelerators (Ctrl+R reload, Ctrl+W close...) would destroy every pane.
   Menu.setApplicationMenu(null);
   win.webContents.on('will-navigate', e => e.preventDefault());
