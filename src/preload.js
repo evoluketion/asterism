@@ -42,4 +42,5 @@ contextBridge.exposeInMainWorld('asterism', {
   onScreenRequest: on('screen:request'),
   onFocusPane: on('pane:focus'),
   onArchiveChanged: on('archive:changed'),
+  onHotkey: on('app:hotkey'),
 });
