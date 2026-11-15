@@ -49,21 +49,26 @@ async function newPane(opts = {}) {
     toast(`Could not open pane: ${err.message || err}`);
     return null;
   }
-  const view = createView(snap);
+  const view = attachTerminal(paneFrame(snap));
   S.panes.set(snap.id, view);
   const early = S.pending.get(snap.id);
   if (early) { view.term.write(early); S.pending.delete(snap.id); }
+  placePane(snap.id, opts);
+  return snap.id;
+}
+
+/** Puts a newly created view into the tree: in place of `opts.replace`, or added by the layout rules. */
+function placePane(id, opts = {}) {
   if (opts.replace) {
-    S.tree = L.swapPanes(S.tree, opts.replace, snap.id);
+    S.tree = L.swapPanes(S.tree, opts.replace, id);
     disposeView(opts.replace);
   } else if (!S.restoring) {
-    S.tree = S.custom && S.tree ? splitBeside(S.focused, snap.id) : L.buildPreset(S.preset, [...L.leafIds(S.tree), snap.id]);
+    S.tree = S.custom && S.tree ? splitBeside(S.focused, id) : L.buildPreset(S.preset, [...L.leafIds(S.tree), id]);
   }
   if (!S.restoring) {
     renderLayout();
-    focusPane(snap.id);
+    focusPane(id);
   }
-  return snap.id;
 }
 
 // In a customised layout, split the focused pane along its longer side.
@@ -75,7 +80,11 @@ function splitBeside(targetId, newId) {
   return L.splitPane(S.tree, target, newId, wide ? 'row' : 'col');
 }
 
-function createView(snap) {
+const isTerminalKind = kind => kind === 'claude' || kind === 'shell';
+
+/** The pane element and its title bar, shared by every pane kind. The content is added by an attach function. */
+function paneFrame(snap) {
+  const terminal = isTerminalKind(snap.kind);
   const el = document.createElement('div');
   el.className = 'pane';
   el.dataset.id = snap.id;
@@ -86,83 +95,43 @@ function createView(snap) {
       <span class="pane-meta"></span>
       <span class="pane-reply"></span>
       <span class="pane-chip"></span>
-      <button class="pane-btn restart hidden" title="Start Claude again, resuming this conversation">↻ Claude</button>
+      ${terminal ? `<button class="pane-btn restart hidden" title="Start Claude again, resuming this conversation">↻ Claude</button>
       <button class="pane-btn diff" title="Git diff (Ctrl+Shift+D)">±</button>
       <button class="pane-btn prs" title="Pull requests (Ctrl+Shift+P)">⇄</button>
-      <button class="pane-btn done" title="Mark as completed: close the pane and keep it in the completed history">✓</button>
+      <button class="pane-btn done" title="Mark as completed: close the pane and keep it in the completed history">✓</button>` : ''}
       <button class="pane-btn zoom" title="Zoom (Ctrl+Shift+Enter)">⤢</button>
       <button class="pane-btn close" title="Close (Ctrl+Shift+W)">✕</button>
     </div>
-    <div class="pane-term"></div>
-    <div class="pane-search hidden"><input placeholder="Find in scrollback  (Enter / Shift+Enter, Esc)" spellcheck="false"><span class="pane-search-count"></span></div>
-    ${overlayHtml('pane-diff', '<span class="diff-sum"></span>')}
-    ${overlayHtml('pane-prs', '<span class="pr-scope"><button class="pr-scope-btn" data-scope="branch" title="Open pull requests from this pane\'s branch">This branch</button><button class="pr-scope-btn" data-scope="all" title="Every open pull request in the repo">All open</button></span>')}`;
+    ${terminal ? `${overlayHtml('pane-diff', '<span class="diff-sum"></span>')}
+    ${overlayHtml('pane-prs', '<span class="pr-scope"><button class="pr-scope-btn" data-scope="branch" title="Open pull requests from this pane\'s branch">This branch</button><button class="pr-scope-btn" data-scope="all" title="Every open pull request in the repo">All open</button></span>')}` : ''}`;
   const bar = el.querySelector('.pane-bar');
-  const termEl = el.querySelector('.pane-term');
-
-  const term = new Terminal({
-    fontFamily: S.settings.fontFamily || DEFAULT_FONT,
-    fontSize: S.settings.fontSize || 13,
-    lineHeight: 1.1,
-    cursorBlink: true,
-    scrollback: 10000,
-    allowProposedApi: true,
-    rescaleOverlappingGlyphs: true,
-    linkHandler: { activate: (_e, uri) => api.openExternal(uri), allowNonHttpProtocols: false },
-    theme: termTheme(getTheme(S.settings.theme)),
-  });
-  const fit = new FitAddon();
-  term.loadAddon(fit);
-  const search = new SearchAddon();
-  term.loadAddon(search);
-  term.loadAddon(new WebLinksAddon((_e, uri) => api.openExternal(uri)));
 
   const view = {
-    id: snap.id, el, bar, termEl, term, fit, search, status: snap, opened: false, exited: false, restarting: false,
+    id: snap.id, el, bar, status: snap, exited: false, restarting: false,
     launch: { kind: snap.kind, name: snap.name, cwd: snap.cwd, args: snap.args || [] },
-    lastCols: 0, lastRows: 0, prScope: 'branch',
+    prScope: 'branch',
+    mount() {}, fit() {}, focus() {}, dispose() {}, setTheme() {}, setFont() {},
   };
 
-  term.onData(data => {
-    if (view.exited) {
-      if (data.includes('\r')) restartPane(view.id);
-      return;
-    }
-    api.write(view.id, data);
-  });
-  term.attachCustomKeyEventHandler(ev => {
-    // Shift+Enter → ESC CR, which Claude Code treats as "insert newline".
-    if (ev.key === 'Enter' && ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
-      if (ev.type === 'keydown') api.write(view.id, '\x1b\r');
-      return false;
-    }
-    return true;
-  });
-  termEl.addEventListener('contextmenu', async e => {
-    e.preventDefault();
-    if (term.hasSelection()) { api.clipboardWrite(term.getSelection()); term.clearSelection(); }
-    else { const t = await api.clipboardRead(); if (t) term.paste(t); }
-  });
   el.addEventListener('mousedown', () => setFocused(view.id), true);
 
-  new ResizeObserver(() => scheduleFit(view)).observe(termEl);
-
-  bar.querySelector('.restart').addEventListener('click', e => { e.stopPropagation(); restartPane(view.id); });
-  wireSearch(view);
-  wireOverlay(view, el.querySelector('.pane-diff'), loadDiff);
-  bar.querySelector('.diff').addEventListener('click', e => { e.stopPropagation(); toggleDiff(view.id); });
-  const prBox = el.querySelector('.pane-prs');
-  wireOverlay(view, prBox, loadPrs);
-  for (const b of prBox.querySelectorAll('.pr-scope-btn')) {
-    b.addEventListener('click', () => { view.prScope = b.dataset.scope; view.prResult = null; loadPrs(view); prBox.focus(); });
+  if (terminal) {
+    bar.querySelector('.restart').addEventListener('click', e => { e.stopPropagation(); restartPane(view.id); });
+    wireOverlay(view, el.querySelector('.pane-diff'), loadDiff);
+    bar.querySelector('.diff').addEventListener('click', e => { e.stopPropagation(); toggleDiff(view.id); });
+    const prBox = el.querySelector('.pane-prs');
+    wireOverlay(view, prBox, loadPrs);
+    for (const b of prBox.querySelectorAll('.pr-scope-btn')) {
+      b.addEventListener('click', () => { view.prScope = b.dataset.scope; view.prResult = null; loadPrs(view); prBox.focus(); });
+    }
+    bar.querySelector('.prs').addEventListener('click', e => { e.stopPropagation(); togglePrs(view.id); });
+    bar.querySelector('.done').addEventListener('click', e => { e.stopPropagation(); completePane(view.id); });
   }
-  bar.querySelector('.prs').addEventListener('click', e => { e.stopPropagation(); togglePrs(view.id); });
   bar.querySelector('.close').addEventListener('click', e => { e.stopPropagation(); closePane(view.id); });
   bar.querySelector('.zoom').addEventListener('click', e => { e.stopPropagation(); toggleZoom(view.id); });
   const metaEl = bar.querySelector('.pane-meta');
   metaEl.addEventListener('click', e => { e.stopPropagation(); api.openDir(view.id); });
   metaEl.addEventListener('dblclick', e => e.stopPropagation());
-  bar.querySelector('.done').addEventListener('click', e => { e.stopPropagation(); completePane(view.id); });
   bar.addEventListener('dblclick', e => {
     if (e.target.classList.contains('pane-name')) renamePrompt(view.id);
     else if (!e.target.closest('button')) toggleZoom(view.id);
@@ -185,6 +154,72 @@ function createView(snap) {
   });
 
   updateBar(view);
+  return view;
+}
+
+/** Fills a pane frame with an xterm wired to the pane's PTY. */
+function attachTerminal(view) {
+  const termEl = document.createElement('div');
+  termEl.className = 'pane-term';
+  const searchEl = document.createElement('div');
+  searchEl.className = 'pane-search hidden';
+  searchEl.innerHTML = '<input placeholder="Find in scrollback  (Enter / Shift+Enter, Esc)" spellcheck="false"><span class="pane-search-count"></span>';
+  view.bar.after(termEl, searchEl);
+
+  const term = new Terminal({
+    fontFamily: S.settings.fontFamily || DEFAULT_FONT,
+    fontSize: S.settings.fontSize || 13,
+    lineHeight: 1.1,
+    cursorBlink: true,
+    scrollback: 10000,
+    allowProposedApi: true,
+    rescaleOverlappingGlyphs: true,
+    linkHandler: { activate: (_e, uri) => api.openExternal(uri), allowNonHttpProtocols: false },
+    theme: termTheme(getTheme(S.settings.theme)),
+  });
+  const fit = new FitAddon();
+  term.loadAddon(fit);
+  const search = new SearchAddon();
+  term.loadAddon(search);
+  term.loadAddon(new WebLinksAddon((_e, uri) => api.openExternal(uri)));
+
+  Object.assign(view, {
+    termEl, term, fit, search, opened: false, lastCols: 0, lastRows: 0,
+    mount() { if (view.el.isConnected) { openTerm(view); scheduleFit(view); } },
+    fit() { scheduleFit(view); },
+    focus() { term.focus(); },
+    dispose() { term.dispose(); },
+    setTheme(theme) { term.options.theme = termTheme(theme); },
+    setFont() {
+      term.options.fontSize = S.settings.fontSize;
+      term.options.fontFamily = S.settings.fontFamily || DEFAULT_FONT;
+      scheduleFit(view);
+    },
+  });
+
+  term.onData(data => {
+    if (view.exited) {
+      if (data.includes('\r')) restartPane(view.id);
+      return;
+    }
+    api.write(view.id, data);
+  });
+  term.attachCustomKeyEventHandler(ev => {
+    // Shift+Enter → ESC CR, which Claude Code treats as "insert newline".
+    if (ev.key === 'Enter' && ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
+      if (ev.type === 'keydown') api.write(view.id, '\x1b\r');
+      return false;
+    }
+    return true;
+  });
+  termEl.addEventListener('contextmenu', async e => {
+    e.preventDefault();
+    if (term.hasSelection()) { api.clipboardWrite(term.getSelection()); term.clearSelection(); }
+    else { const t = await api.clipboardRead(); if (t) term.paste(t); }
+  });
+
+  new ResizeObserver(() => scheduleFit(view)).observe(termEl);
+  wireSearch(view);
   return view;
 }
 
@@ -221,7 +256,7 @@ function disposeView(id) {
   S.dead.add(id);
   S.pending.delete(id);
   api.kill(id);
-  view.term.dispose();
+  view.dispose();
   view.el.remove();
 }
 
@@ -271,7 +306,7 @@ async function restartPane(id) {
   if (!view || view.restarting) return;
   const s = view.status;
   // Shell still alive (Claude was /exit-ed): just run claude in it again.
-  if (!view.exited && s.kind === 'claude') { await api.relaunchClaude(id); view.term.focus(); return; }
+  if (!view.exited && s.kind === 'claude') { await api.relaunchClaude(id); view.focus(); return; }
   view.restarting = true;
   const kind = s.kind;
   const cwd = kind === 'claude' ? (s.startCwd || view.launch.cwd) : view.launch.cwd;
@@ -337,7 +372,7 @@ function openSearch(view) {
 function closeSearch(view) {
   view.el.querySelector('.pane-search').classList.add('hidden');
   view.search.clearDecorations();
-  view.term.focus();
+  view.focus();
 }
 
 /** A panel that opens inset over a pane, with refresh, expand-to-window and close. `extra` goes in its header. */
@@ -725,9 +760,7 @@ function renderLayout() {
   for (const v of S.panes.values()) v.el.remove();
   grid.replaceChildren();
   if (tree) grid.appendChild(buildNode(tree, []));
-  for (const v of S.panes.values()) {
-    if (v.el.isConnected) { openTerm(v); scheduleFit(v); }
-  }
+  for (const v of S.panes.values()) v.mount();
 
   $('#empty').classList.toggle('hidden', ids.length > 0);
   if (!ids.length) renderEmpty();
@@ -840,7 +873,7 @@ function focusPane(id) {
   if (!v) return;
   if (S.zoomed && S.zoomed !== id) { S.zoomed = id; renderLayout(); }
   setFocused(id);
-  v.term.focus();
+  v.focus();
 }
 
 function jumpToWaiting() {
@@ -937,8 +970,8 @@ function updateBar(view) {
   }
   if (['ready', 'permission', 'question', 'working', 'error'].includes(state)) label += ` · ${ago(now - s.since)}`;
   chip.textContent = label;
-  view.bar.querySelector('.done').classList.toggle('hidden', s.kind !== 'claude');
-  view.bar.querySelector('.restart').classList.toggle('hidden', !(s.kind === 'claude' && (state === 'shell' || state === 'exited')));
+  view.bar.querySelector('.done')?.classList.toggle('hidden', s.kind !== 'claude');
+  view.bar.querySelector('.restart')?.classList.toggle('hidden', !(s.kind === 'claude' && (state === 'shell' || state === 'exited')));
 }
 
 function updateWaiting() {
@@ -1543,8 +1576,7 @@ function applyTheme(id = S.settings.theme) {
   const root = document.documentElement;
   for (const [k, v] of Object.entries(cssVars(t))) root.style.setProperty(k, v);
   root.style.colorScheme = t.dark ? 'dark' : 'light';
-  const tt = termTheme(t);
-  for (const v of S.panes.values()) v.term.options.theme = tt;
+  for (const v of S.panes.values()) v.setTheme(t);
 }
 
 function themePicker(current, onPick) {
@@ -1555,11 +1587,7 @@ function themePicker(current, onPick) {
 }
 
 function applyFont() {
-  for (const v of S.panes.values()) {
-    v.term.options.fontSize = S.settings.fontSize;
-    v.term.options.fontFamily = S.settings.fontFamily || DEFAULT_FONT;
-    scheduleFit(v);
-  }
+  for (const v of S.panes.values()) v.setFont();
 }
 
 async function bumpFont(delta) {
@@ -1638,13 +1666,13 @@ function handleHotkey(e) {
       return true;
     }
     case 'KeyR': if (v) renamePrompt(v.id); return true;
-    case 'KeyF': if (v) openSearch(v); return true;
+    case 'KeyF': if (v && v.term) openSearch(v); return true;
     case 'KeyE': if (v) api.openDir(v.id); return true;
     case 'KeyD': if (v) toggleDiff(v.id); return true;
     case 'KeyP': if (v) togglePrs(v.id); return true;
     case 'KeyH': toggleToolbar(); return true;
-    case 'KeyC': if (v && v.term.hasSelection()) { api.clipboardWrite(v.term.getSelection()); v.term.clearSelection(); } return true;
-    case 'KeyV': if (v) api.clipboardRead().then(t => { if (t) v.term.paste(t); }); return true;
+    case 'KeyC': if (v && v.term && v.term.hasSelection()) { api.clipboardWrite(v.term.getSelection()); v.term.clearSelection(); } return true;
+    case 'KeyV': if (v && v.term) api.clipboardRead().then(t => { if (t) v.term.paste(t); }); return true;
     case 'Equal': bumpFont(1); return true;
     case 'Minus': bumpFont(-1); return true;
     default: return false;
