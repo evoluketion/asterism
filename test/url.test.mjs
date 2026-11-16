@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert';
-import { toUrl } from '../src/renderer/url.js';
+import { toUrl, HOME_URL } from '../src/renderer/url.js';
 
 test('explicit http and https addresses are kept', () => {
   assert.deepStrictEqual(toUrl('https://example.com/a?b=1#c'), { url: 'https://example.com/a?b=1#c' });
@@ -24,12 +24,21 @@ test('a bare host with a dot becomes https', () => {
   assert.deepStrictEqual(toUrl('example.com:8443'), { url: 'https://example.com:8443/' });
 });
 
-test('about:blank passes through', () => {
+test('about:blank passes through, and the home page is an allowed address', () => {
+  assert.deepStrictEqual(toUrl(HOME_URL), { url: HOME_URL });
   assert.deepStrictEqual(toUrl('about:blank'), { url: 'about:blank' });
 });
 
-test('anything else is an error', () => {
-  for (const t of ['', '   ', 'hello', 'how do I centre a div', 'file:///etc/passwd', 'javascript:alert(1)', 'data:text/html,hi', 'about:config', 'ftp://x.com', 'chrome://gpu', null, undefined]) {
+test('other text is searched on Google', () => {
+  const search = q => ({ url: `https://www.google.com/search?q=${encodeURIComponent(q)}` });
+  for (const t of ['hello', 'how do I centre a div', 'define:asterism', 'c++ vs rust', 'example.com is down?', 'localhost 3000']) {
+    assert.deepStrictEqual(toUrl(t), search(t), t);
+  }
+  assert.deepStrictEqual(toUrl('  a & b  '), { url: 'https://www.google.com/search?q=a%20%26%20b' });
+});
+
+test('empty text and refused schemes are errors', () => {
+  for (const t of ['', '   ', 'file:///etc/passwd', 'javascript:alert(1)', 'data:text/html,hi', 'about:config', 'ftp://x.com', 'chrome://gpu', 'VIEW-SOURCE:https://x.com', null, undefined]) {
     assert.ok(toUrl(t).error, String(t));
   }
 });

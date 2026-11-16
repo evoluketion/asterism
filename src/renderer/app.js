@@ -5,7 +5,7 @@ import { WebLinksAddon } from '../../node_modules/@xterm/addon-web-links/lib/add
 import { SearchAddon } from '../../node_modules/@xterm/addon-search/lib/addon-search.mjs';
 import * as L from './layout.js';
 import { THEMES, getTheme, cssVars, termTheme } from './themes.js';
-import { toUrl } from './url.js';
+import { toUrl, HOME_URL } from './url.js';
 
 const api = window.asterism;
 const $ = sel => document.querySelector(sel);
@@ -61,7 +61,7 @@ async function newPane(opts = {}) {
 let browserSeq = 0;
 
 /** Opens a browser pane. Browser panes exist only in the renderer, so it makes up the id. */
-function newBrowserPane({ url = 'about:blank', name = null } = {}) {
+function newBrowserPane({ url = HOME_URL, name = null } = {}) {
   const id = `b${++browserSeq}`;
   const status = { id, kind: 'browser', name: name || 'Browser', autoName: !name, url, state: 'browser', since: Date.now() };
   const view = attachBrowser(paneFrame(status));
@@ -252,7 +252,7 @@ function attachBrowser(view) {
       <button class="pane-btn ub-back" title="Back" disabled>←</button>
       <button class="pane-btn ub-fwd" title="Forward" disabled>→</button>
       <button class="pane-btn ub-reload" title="Reload">⟳</button>
-      <input class="ub-addr" spellcheck="false" placeholder="example.com or localhost:3000">
+      <input class="ub-addr" spellcheck="false" placeholder="Search Google or type an address">
     </div>
     <div class="pane-web"></div>`);
   const web = view.el.querySelector('.pane-web');

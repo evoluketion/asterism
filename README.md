@@ -47,8 +47,8 @@ real terminal and puts every session on screen at once, built for a big monitor.
   its changes right there. **Merge…** takes a
   PR out of draft, approves it and merges it in one go. This uses the [GitHub CLI](https://cli.github.com).
 - **Browser panes.** `+ Browser` or `Ctrl+Shift+B` opens a web page in a pane that tiles beside the
-  terminals, so a dev server can sit next to the Claude pane working on it. Type `localhost:3000` or
-  `example.com` in its address bar. Pages can't use your camera, microphone or other permissions, and
+  terminals, so a dev server can sit next to the Claude pane working on it. It opens on Google; type
+  `localhost:3000` or `example.com` in its address bar, or anything else to search Google. Pages can't use your camera, microphone or other permissions, and
   pop-ups open in your normal browser.
 - **Layouts:** grid (four panes = four corners), columns, rows, main + stack and main + row. Drag
   dividers to resize, and drag title bars to swap panes.
