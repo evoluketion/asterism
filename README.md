@@ -91,7 +91,7 @@ npm run dist:win
 ```
 
 This builds a portable `Asterism-<version>.exe` in `dist/`: no install, just run it, like the
-AppImage. Windows uses node-pty's prebuilt ConPTY binaries, so no build tools are needed. *The Windows build hasn't been tested yet.*
+AppImage. Windows uses node-pty's prebuilt ConPTY binaries, so no build tools are needed.
 
 ### Issue builds
 
@@ -320,6 +320,6 @@ docs/                 design notes and README images
 
 ## Status
 
-Version 0.1, a personal tool. Tested on Linux (Fedora, Wayland) with bash and real Claude Code. The
-Windows build and the zsh, fish, PowerShell and cmd startup paths are written but untested. macOS
+Version 0.1, a personal tool. Used daily with real Claude Code on Linux (Fedora, Wayland) with bash
+and on Windows with PowerShell. The zsh, fish and cmd startup paths are written but untested. macOS
 isn't packaged.
