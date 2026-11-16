@@ -2,6 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('fs');
+const path = require('path');
 const { PARTITION, allowedUrl, hardenWebview, appHotkey } = require('../src/main/browser');
 
 test('allowedUrl accepts web pages and the blank page only', () => {
@@ -45,6 +47,18 @@ test('appHotkey forwards Asterism shortcuts as renderer key events', () => {
   assert.strictEqual(appHotkey(key({ code: 'Tab', key: 'Tab' })).shiftKey, true);
 });
 
+test('appHotkey forwards every Ctrl+Shift key the renderer handles for any pane', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const body = app.slice(app.indexOf('function handleHotkey('), app.indexOf('\n}\n', app.indexOf('function handleHotkey(')));
+  const handled = new Set([...body.matchAll(/case '(\w+)':/g)].map(m => m[1]));
+  for (let d = 1; d <= 9; d++) handled.add(`Digit${d}`);
+  for (const code of ['KeyC', 'KeyV', 'KeyF', 'KeyE', 'KeyD', 'KeyP']) handled.delete(code);
+  const key = code => ({ type: 'keyDown', control: true, shift: true, alt: false, meta: false, code });
+  const forwarded = [...handled].filter(code => appHotkey(key(code)));
+  assert.deepStrictEqual(forwarded.sort(), [...handled].sort());
+  assert.ok(handled.has('KeyB') && handled.has('KeyW'));
+});
+
 test('appHotkey leaves the page its own keys', () => {
   const key = o => ({ type: 'keyDown', control: true, shift: true, alt: false, meta: false, ...o });
   assert.strictEqual(appHotkey(key({ code: 'KeyW', shift: false })), null);
@@ -52,5 +66,5 @@ test('appHotkey leaves the page its own keys', () => {
   assert.strictEqual(appHotkey(key({ code: 'KeyW', meta: true })), null);
   assert.strictEqual(appHotkey(key({ code: 'KeyW', control: false })), null);
   assert.strictEqual(appHotkey(key({ code: 'KeyW', type: 'keyUp' })), null);
-  for (const code of ['KeyC', 'KeyV', 'KeyF', 'KeyZ', 'KeyI']) assert.strictEqual(appHotkey(key({ code })), null, code);
+  for (const code of ['KeyC', 'KeyV', 'KeyF', 'KeyE', 'KeyD', 'KeyP', 'KeyZ', 'KeyI']) assert.strictEqual(appHotkey(key({ code })), null, code);
 });

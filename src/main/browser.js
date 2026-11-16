@@ -4,10 +4,10 @@ const PARTITION = 'persist:asterism-browser';
 
 /**
  * Ctrl+Shift+… codes the renderer's hotkey handler acts on. Keep in step with handleHotkey in
- * src/renderer/app.js. C, V and F stay with the page, since Asterism's copy, paste and find act on terminals.
+ * src/renderer/app.js. C, V, F, E, D and P stay with the page: Asterism's versions act only on terminals.
  */
 const HOTKEY_CODES = new Set([
-  'Space', 'KeyN', 'KeyO', 'KeyT', 'KeyW', 'KeyB', 'Enter', 'KeyL', 'KeyR', 'KeyE', 'KeyD', 'KeyP', 'KeyH',
+  'Space', 'KeyN', 'KeyO', 'KeyT', 'KeyW', 'KeyB', 'Enter', 'KeyL', 'KeyR', 'KeyH',
   'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Equal', 'Minus',
   'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9',
 ]);
@@ -61,8 +61,14 @@ function wireBrowserGuests({ app, getWin, send }) {
     const guard = (e, url) => { if (!allowedUrl(url)) e.preventDefault(); };
     wc.on('will-navigate', guard);
     wc.on('will-redirect', guard);
+    // Guests run with allowpopups so pop-ups reach this handler. That also lifts Chromium's pop-up
+    // blocker, so one external open per second stops a page from flooding the system browser.
+    let lastOpen = 0;
     wc.setWindowOpenHandler(({ url }) => {
-      if (url !== 'about:blank' && allowedUrl(url)) shell.openExternal(url);
+      if (url !== 'about:blank' && allowedUrl(url) && Date.now() - lastOpen > 1000) {
+        lastOpen = Date.now();
+        shell.openExternal(url);
+      }
       return { action: 'deny' };
     });
     wc.on('before-input-event', (e, input) => {

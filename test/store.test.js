@@ -13,6 +13,12 @@ test('commonDir picks the folder most panes share', () => {
   assert.strictEqual(commonDir(null), '');
 });
 
+test('commonDir ignores panes with no folder, such as browser panes', () => {
+  const layout = { panes: [{ kind: 'browser', url: 'https://a.test/' }, { kind: 'browser', url: 'https://b.test/' }, { cwd: '/w' }] };
+  assert.strictEqual(commonDir(layout), '/w');
+  assert.strictEqual(commonDir({ panes: [{ kind: 'browser', url: 'about:blank' }] }), '');
+});
+
 test('old workspaces become projects and old folder settings are dropped', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'asterism-store-'));
   const layout = { preset: 'grid', panes: [{ kind: 'claude', cwd: '/w/api' }, { kind: 'claude', cwd: '/w/api' }, { kind: 'shell', cwd: '/w' }] };

@@ -5,6 +5,7 @@ import { WebLinksAddon } from '../../node_modules/@xterm/addon-web-links/lib/add
 import { SearchAddon } from '../../node_modules/@xterm/addon-search/lib/addon-search.mjs';
 import * as L from './layout.js';
 import { THEMES, getTheme, cssVars, termTheme } from './themes.js';
+import { toUrl } from './url.js';
 
 const api = window.asterism;
 const $ = sel => document.querySelector(sel);
@@ -12,7 +13,7 @@ const $ = sel => document.querySelector(sel);
 const DEFAULT_FONT = '"JetBrains Mono", "Cascadia Mono", "Fira Code", "DejaVu Sans Mono", Consolas, "Liberation Mono", monospace';
 const STATE_LABEL = {
   starting: 'Starting', idle: 'Idle', working: 'Working', ready: 'Ready', permission: 'Needs permission',
-  question: 'Question', error: 'Error', shell: 'Shell', exited: 'Exited', check: 'Check pane',
+  question: 'Question', error: 'Error', shell: 'Shell', exited: 'Exited', check: 'Check pane', browser: 'Browser',
 };
 const NEEDS_YOU = new Set(['ready', 'permission', 'question', 'error', 'check']);
 const URGENT = new Set(['permission', 'question', 'error', 'check']);
@@ -57,6 +58,18 @@ async function newPane(opts = {}) {
   return snap.id;
 }
 
+let browserSeq = 0;
+
+/** Opens a browser pane. Browser panes exist only in the renderer, so it makes up the id. */
+function newBrowserPane({ url = 'about:blank', name = null } = {}) {
+  const id = `b${++browserSeq}`;
+  const status = { id, kind: 'browser', name: name || 'Browser', autoName: !name, url, state: 'browser', since: Date.now() };
+  const view = attachBrowser(paneFrame(status));
+  S.panes.set(id, view);
+  placePane(id);
+  return id;
+}
+
 /** Puts a newly created view into the tree: in place of `opts.replace`, or added by the layout rules. */
 function placePane(id, opts = {}) {
   if (opts.replace) {
@@ -80,11 +93,11 @@ function splitBeside(targetId, newId) {
   return L.splitPane(S.tree, target, newId, wide ? 'row' : 'col');
 }
 
-const isTerminalKind = kind => kind === 'claude' || kind === 'shell';
-
-/** The pane element and its title bar, shared by every pane kind. The content is added by an attach function. */
+/**
+ * The pane element and its title bar, shared by every pane kind. An attach function adds the
+ * content and the view methods: mount, focus, dispose, rename, serialize, and optionally setTheme/setFont.
+ */
 function paneFrame(snap) {
-  const terminal = isTerminalKind(snap.kind);
   const el = document.createElement('div');
   el.className = 'pane';
   el.dataset.id = snap.id;
@@ -95,43 +108,16 @@ function paneFrame(snap) {
       <span class="pane-meta"></span>
       <span class="pane-reply"></span>
       <span class="pane-chip"></span>
-      ${terminal ? `<button class="pane-btn restart hidden" title="Start Claude again, resuming this conversation">↻ Claude</button>
-      <button class="pane-btn diff" title="Git diff (Ctrl+Shift+D)">±</button>
-      <button class="pane-btn prs" title="Pull requests (Ctrl+Shift+P)">⇄</button>
-      <button class="pane-btn done" title="Mark as completed: close the pane and keep it in the completed history">✓</button>` : ''}
       <button class="pane-btn zoom" title="Zoom (Ctrl+Shift+Enter)">⤢</button>
       <button class="pane-btn close" title="Close (Ctrl+Shift+W)">✕</button>
-    </div>
-    ${terminal ? `${overlayHtml('pane-diff', '<span class="diff-sum"></span>')}
-    ${overlayHtml('pane-prs', '<span class="pr-scope"><button class="pr-scope-btn" data-scope="branch" title="Open pull requests from this pane\'s branch">This branch</button><button class="pr-scope-btn" data-scope="all" title="Every open pull request in the repo">All open</button></span>')}` : ''}`;
+    </div>`;
   const bar = el.querySelector('.pane-bar');
-
-  const view = {
-    id: snap.id, el, bar, status: snap, exited: false, restarting: false,
-    launch: { kind: snap.kind, name: snap.name, cwd: snap.cwd, args: snap.args || [] },
-    prScope: 'branch',
-    mount() {}, fit() {}, focus() {}, dispose() {}, setTheme() {}, setFont() {},
-  };
+  const view = { id: snap.id, el, bar, status: snap, setTheme() {}, setFont() {} };
 
   el.addEventListener('mousedown', () => setFocused(view.id), true);
-
-  if (terminal) {
-    bar.querySelector('.restart').addEventListener('click', e => { e.stopPropagation(); restartPane(view.id); });
-    wireOverlay(view, el.querySelector('.pane-diff'), loadDiff);
-    bar.querySelector('.diff').addEventListener('click', e => { e.stopPropagation(); toggleDiff(view.id); });
-    const prBox = el.querySelector('.pane-prs');
-    wireOverlay(view, prBox, loadPrs);
-    for (const b of prBox.querySelectorAll('.pr-scope-btn')) {
-      b.addEventListener('click', () => { view.prScope = b.dataset.scope; view.prResult = null; loadPrs(view); prBox.focus(); });
-    }
-    bar.querySelector('.prs').addEventListener('click', e => { e.stopPropagation(); togglePrs(view.id); });
-    bar.querySelector('.done').addEventListener('click', e => { e.stopPropagation(); completePane(view.id); });
-  }
   bar.querySelector('.close').addEventListener('click', e => { e.stopPropagation(); closePane(view.id); });
   bar.querySelector('.zoom').addEventListener('click', e => { e.stopPropagation(); toggleZoom(view.id); });
-  const metaEl = bar.querySelector('.pane-meta');
-  metaEl.addEventListener('click', e => { e.stopPropagation(); api.openDir(view.id); });
-  metaEl.addEventListener('dblclick', e => e.stopPropagation());
+  bar.querySelector('.pane-meta').addEventListener('dblclick', e => e.stopPropagation());
   bar.addEventListener('dblclick', e => {
     if (e.target.classList.contains('pane-name')) renamePrompt(view.id);
     else if (!e.target.closest('button')) toggleZoom(view.id);
@@ -152,19 +138,23 @@ function paneFrame(snap) {
     const from = e.dataTransfer.getData('text/asterism-pane');
     if (from && from !== view.id) { e.preventDefault(); S.tree = L.swapPanes(S.tree, from, view.id); renderLayout(); }
   });
-
-  updateBar(view);
   return view;
 }
 
-/** Fills a pane frame with an xterm wired to the pane's PTY. */
+/** Fills a pane frame with an xterm wired to the pane's PTY, plus the git, PR and restart controls. */
 function attachTerminal(view) {
-  const termEl = document.createElement('div');
-  termEl.className = 'pane-term';
-  const searchEl = document.createElement('div');
-  searchEl.className = 'pane-search hidden';
-  searchEl.innerHTML = '<input placeholder="Find in scrollback  (Enter / Shift+Enter, Esc)" spellcheck="false"><span class="pane-search-count"></span>';
-  view.bar.after(termEl, searchEl);
+  const { el, bar, status: snap } = view;
+  bar.querySelector('.zoom').insertAdjacentHTML('beforebegin', `
+      <button class="pane-btn restart hidden" title="Start Claude again, resuming this conversation">↻ Claude</button>
+      <button class="pane-btn diff" title="Git diff (Ctrl+Shift+D)">±</button>
+      <button class="pane-btn prs" title="Pull requests (Ctrl+Shift+P)">⇄</button>
+      <button class="pane-btn done" title="Mark as completed: close the pane and keep it in the completed history">✓</button>`);
+  el.insertAdjacentHTML('beforeend', `
+    <div class="pane-term"></div>
+    <div class="pane-search hidden"><input placeholder="Find in scrollback  (Enter / Shift+Enter, Esc)" spellcheck="false"><span class="pane-search-count"></span></div>
+    ${overlayHtml('pane-diff', '<span class="diff-sum"></span>')}
+    ${overlayHtml('pane-prs', '<span class="pr-scope"><button class="pr-scope-btn" data-scope="branch" title="Open pull requests from this pane\'s branch">This branch</button><button class="pr-scope-btn" data-scope="all" title="Every open pull request in the repo">All open</button></span>')}`);
+  const termEl = el.querySelector('.pane-term');
 
   const term = new Terminal({
     fontFamily: S.settings.fontFamily || DEFAULT_FONT,
@@ -185,10 +175,22 @@ function attachTerminal(view) {
 
   Object.assign(view, {
     termEl, term, fit, search, opened: false, lastCols: 0, lastRows: 0,
-    mount() { if (view.el.isConnected) { openTerm(view); scheduleFit(view); } },
-    fit() { scheduleFit(view); },
+    exited: false, restarting: false, prScope: 'branch',
+    launch: { kind: snap.kind, name: snap.name, cwd: snap.cwd, args: snap.args || [] },
+    renameHint: 'folder name',
+    mount() { if (el.isConnected) { openTerm(view); scheduleFit(view); } },
     focus() { term.focus(); },
-    dispose() { term.dispose(); },
+    dispose() { api.kill(view.id); term.dispose(); },
+    rename(name) { api.rename(view.id, name); },
+    serialize() {
+      // Claude stores conversations per launch folder, so resume must use the folder it was started
+      // in. A shell pane where the user typed `claude` is saved as a Claude pane.
+      const s = view.status;
+      const cwd = s.kind === 'claude' ? (s.startCwd || view.launch.cwd) : view.launch.cwd;
+      const args = s.kind === view.launch.kind ? view.launch.args : [];
+      // A default name is saved as null so the restored pane follows its folder again.
+      return { kind: s.kind, name: s.autoName ? null : s.name, cwd, args, sessionId: s.sessionId || null };
+    },
     setTheme(theme) { term.options.theme = termTheme(theme); },
     setFont() {
       term.options.fontSize = S.settings.fontSize;
@@ -196,6 +198,18 @@ function attachTerminal(view) {
       scheduleFit(view);
     },
   });
+
+  bar.querySelector('.restart').addEventListener('click', e => { e.stopPropagation(); restartPane(view.id); });
+  wireOverlay(view, el.querySelector('.pane-diff'), loadDiff);
+  bar.querySelector('.diff').addEventListener('click', e => { e.stopPropagation(); toggleDiff(view.id); });
+  const prBox = el.querySelector('.pane-prs');
+  wireOverlay(view, prBox, loadPrs);
+  for (const b of prBox.querySelectorAll('.pr-scope-btn')) {
+    b.addEventListener('click', () => { view.prScope = b.dataset.scope; view.prResult = null; loadPrs(view); prBox.focus(); });
+  }
+  bar.querySelector('.prs').addEventListener('click', e => { e.stopPropagation(); togglePrs(view.id); });
+  bar.querySelector('.done').addEventListener('click', e => { e.stopPropagation(); completePane(view.id); });
+  bar.querySelector('.pane-meta').addEventListener('click', e => { e.stopPropagation(); api.openDir(view.id); });
 
   term.onData(data => {
     if (view.exited) {
@@ -220,6 +234,119 @@ function attachTerminal(view) {
 
   new ResizeObserver(() => scheduleFit(view)).observe(termEl);
   wireSearch(view);
+  updateBar(view);
+  return view;
+}
+
+const urlHost = url => { try { return new URL(url).host; } catch { return ''; } };
+const shownUrl = url => (url === 'about:blank' ? '' : url);
+
+/**
+ * Fills a pane frame with an address bar and a `<webview>`. The webview lives in #browser-layer,
+ * positioned over the pane's placeholder, because moving a webview in the DOM reloads its page and
+ * renderLayout moves pane elements on every change.
+ */
+function attachBrowser(view) {
+  view.bar.insertAdjacentHTML('afterend', `
+    <div class="pane-urlbar">
+      <button class="pane-btn ub-back" title="Back" disabled>←</button>
+      <button class="pane-btn ub-fwd" title="Forward" disabled>→</button>
+      <button class="pane-btn ub-reload" title="Reload">⟳</button>
+      <input class="ub-addr" spellcheck="false" placeholder="example.com or localhost:3000">
+    </div>
+    <div class="pane-web"></div>`);
+  const web = view.el.querySelector('.pane-web');
+  const [back, fwd, reload] = view.el.querySelectorAll('.pane-urlbar button');
+  const addr = view.el.querySelector('.ub-addr');
+  const resetAddr = () => { addr.value = shownUrl(view.status.url); };
+  const autoName = () => view.pageTitle || urlHost(view.status.url) || 'Browser';
+  resetAddr();
+
+  const wv = document.createElement('webview');
+  wv.setAttribute('allowpopups', '');
+  wv.src = view.status.url;
+  $('#browser-layer').appendChild(wv);
+  let loading = false;
+
+  // Runs straight after layout (from renderLayout or a ResizeObserver), so reading the rect is cheap.
+  const place = () => {
+    if (!web.isConnected) { Object.assign(wv.style, { visibility: 'hidden', width: '0px', height: '0px' }); return; }
+    const r = web.getBoundingClientRect();
+    Object.assign(wv.style, { visibility: '', left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+  };
+  const navState = () => {
+    try { back.disabled = !wv.canGoBack(); fwd.disabled = !wv.canGoForward(); } catch { /* not attached yet */ }
+  };
+  // In-page navigations (hash and pushState) can fire constantly, so only full loads trigger a save.
+  const navigated = (url, save) => {
+    if (url === view.status.url) return;
+    view.status.url = url;
+    if (document.activeElement !== addr) resetAddr();
+    navState();
+    updateBar(view);
+    if (save) scheduleSessionSave();
+  };
+  const go = () => {
+    const r = toUrl(addr.value);
+    if (r.error) { toast(r.error); return; }
+    wv.src = r.url;
+    wv.focus();
+  };
+
+  Object.assign(view, {
+    renameHint: 'page title',
+    mount: place,
+    focus() { if (view.status.url === 'about:blank') addr.focus(); else wv.focus(); },
+    dispose() { wv.remove(); },
+    rename(name) {
+      const s = view.status;
+      // Keeping the shown name counts as not renaming, as it does for terminals.
+      if (name === s.name && s.autoName) return;
+      s.autoName = !name;
+      s.name = name || autoName();
+      updateBar(view);
+      scheduleSessionSave();
+    },
+    serialize() {
+      const s = view.status;
+      return { kind: 'browser', name: s.autoName ? null : s.name, url: s.url };
+    },
+  });
+
+  back.addEventListener('click', () => wv.goBack());
+  fwd.addEventListener('click', () => wv.goForward());
+  reload.addEventListener('click', () => (loading ? wv.stop() : wv.reload()));
+  // A click's mouseup would clear the selection made on focus, so a focusing click selects on mouseup.
+  let selectOnUp = false;
+  addr.addEventListener('mousedown', () => { selectOnUp = document.activeElement !== addr; });
+  addr.addEventListener('mouseup', e => { if (selectOnUp) { e.preventDefault(); addr.select(); selectOnUp = false; } });
+  addr.addEventListener('focus', () => { setFocused(view.id); addr.select(); });
+  addr.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); go(); }
+    if (e.key === 'Escape') { e.preventDefault(); resetAddr(); wv.focus(); }
+  });
+
+  wv.addEventListener('did-navigate', e => navigated(e.url, true));
+  wv.addEventListener('did-navigate-in-page', e => { if (e.isMainFrame) navigated(e.url, false); });
+  wv.addEventListener('page-title-updated', e => {
+    view.pageTitle = e.title;
+    if (!view.status.autoName) return;
+    view.status.name = autoName();
+    updateBar(view);
+  });
+  const setLoading = on => {
+    loading = on;
+    reload.textContent = on ? '✕' : '⟳';
+    reload.title = on ? 'Stop' : 'Reload';
+  };
+  wv.addEventListener('did-start-loading', () => setLoading(true));
+  wv.addEventListener('did-stop-loading', () => { setLoading(false); navState(); });
+  // -3 is ERR_ABORTED: a navigation replaced by another one, or stopped.
+  wv.addEventListener('did-fail-load', e => { if (e.isMainFrame && e.errorCode !== -3) toast(`Could not load ${e.validatedURL}: ${e.errorDescription || e.errorCode}`); });
+  wv.addEventListener('focus', () => setFocused(view.id));
+
+  new ResizeObserver(place).observe(web);
+  updateBar(view);
   return view;
 }
 
@@ -255,7 +382,6 @@ function disposeView(id) {
   S.panes.delete(id);
   S.dead.add(id);
   S.pending.delete(id);
-  api.kill(id);
   view.dispose();
   view.el.remove();
 }
@@ -321,9 +447,9 @@ function renamePrompt(id) {
   if (!view) return;
   const r = view.bar.querySelector('.pane-name').getBoundingClientRect();
   showPopover(r.left, r.bottom + 4, pop => {
-    pop.innerHTML = `<h3>Rename pane</h3><input id="rn" maxlength="60" placeholder="Empty: use the folder name" value="${esc(view.status.name)}"><div class="actions"><button id="rn-ok" class="primary">Rename</button></div>`;
+    pop.innerHTML = `<h3>Rename pane</h3><input id="rn" maxlength="60" placeholder="Empty: use the ${view.renameHint}" value="${esc(view.status.name)}"><div class="actions"><button id="rn-ok" class="primary">Rename</button></div>`;
     const input = pop.querySelector('#rn');
-    const ok = () => { api.rename(id, input.value.trim()); hidePopover(); focusPane(id); };
+    const ok = () => { view.rename(input.value.trim()); hidePopover(); focusPane(id); };
     pop.querySelector('#rn-ok').onclick = ok;
     input.addEventListener('keydown', e => { if (e.key === 'Enter') ok(); });
     input.select();
@@ -936,10 +1062,11 @@ function updateBar(view) {
   view.el.dataset.state = state;
   view.bar.querySelector('.pane-name').textContent = s.name;
   view.bar.querySelector('.pane-name').title = `${s.name} — double-click or right-click the bar to rename`;
-  const meta = [shortPath(s.cwd), s.branch ? `⎇ ${s.branch}` : ''].filter(Boolean).join('  ');
+  const browser = s.kind === 'browser';
+  const meta = browser ? urlHost(s.url) : [shortPath(s.cwd), s.branch ? `⎇ ${s.branch}` : ''].filter(Boolean).join('  ');
   const metaEl = view.bar.querySelector('.pane-meta');
   metaEl.textContent = meta;
-  metaEl.title = s.cwd ? `${s.cwd} — click to open folder` : '';
+  metaEl.title = browser ? shownUrl(s.url) : s.cwd ? `${s.cwd} — click to open folder` : '';
 
   const replyEl = view.bar.querySelector('.pane-reply');
   let reply = '';
@@ -970,6 +1097,7 @@ function updateBar(view) {
   }
   if (['ready', 'permission', 'question', 'working', 'error'].includes(state)) label += ` · ${ago(now - s.since)}`;
   chip.textContent = label;
+  chip.classList.toggle('hidden', browser);
   view.bar.querySelector('.done')?.classList.toggle('hidden', s.kind !== 'claude');
   view.bar.querySelector('.restart')?.classList.toggle('hidden', !(s.kind === 'claude' && (state === 'shell' || state === 'exited')));
 }
@@ -1079,16 +1207,7 @@ function serializeLayout() {
     preset: S.preset,
     custom: S.custom,
     tree: S.tree ? mapTree(S.tree) : null,
-    panes: ids.map(id => {
-      const v = S.panes.get(id);
-      // Claude stores conversations per launch folder, so resume must use the folder it was started
-      // in. A shell pane where the user typed `claude` is saved as a Claude pane.
-      const kind = v.status.kind;
-      const cwd = kind === 'claude' ? (v.status.startCwd || v.launch.cwd) : v.launch.cwd;
-      const args = kind === v.launch.kind ? v.launch.args : [];
-      // A default name is saved as null so the restored pane follows its folder again.
-      return { kind, name: v.status.autoName ? null : v.status.name, cwd, args, sessionId: v.status.sessionId || null };
-    }),
+    panes: ids.map(id => S.panes.get(id).serialize()),
     savedAt: Date.now(),
   };
 }
@@ -1121,6 +1240,7 @@ async function openLayout(ws, { resume }) {
   const ids = [];
   try {
     for (const p of ws.panes) {
+      if (p.kind === 'browser') { ids.push(newBrowserPane({ url: toUrl(p.url).url || 'about:blank', name: p.name })); continue; }
       ids.push(await newPane({ kind: p.kind, name: p.name, cwd: p.cwd, args: p.args || [], resume: resume && p.kind === 'claude' ? p.sessionId : null }));
     }
   } finally {
@@ -1479,6 +1599,7 @@ const SHORTCUTS = [
   ['Ctrl+Shift+N', 'New Claude pane in the project folder (asks for a folder outside a project)'],
   ['Ctrl+Shift+O', 'New Claude pane in a folder you pick'],
   ['Ctrl+Shift+T', 'New shell pane in the focused pane\'s folder'],
+  ['Ctrl+Shift+B', 'New browser pane'],
   ['Ctrl+Shift+W', 'Close focused pane'],
   ['Ctrl+Shift+Enter', 'Zoom / unzoom focused pane'],
   ['Ctrl+Shift+Arrows', 'Move focus between panes'],
@@ -1641,7 +1762,7 @@ function handleHotkey(e) {
   if (e.code === 'Tab') { cyclePane(e.shiftKey ? -1 : 1); return true; }
   if (!e.shiftKey) return false;
   // Held-down keys auto-repeat; never let that open, close or re-layout panes repeatedly.
-  if (e.repeat && ['KeyN', 'KeyO', 'KeyT', 'KeyW', 'KeyL', 'Enter', 'KeyR', 'KeyF', 'KeyH', 'KeyE', 'KeyD', 'KeyP'].includes(e.code)) return true;
+  if (e.repeat && ['KeyN', 'KeyO', 'KeyT', 'KeyB', 'KeyW', 'KeyL', 'Enter', 'KeyR', 'KeyF', 'KeyH', 'KeyE', 'KeyD', 'KeyP'].includes(e.code)) return true;
   const v = S.focused && S.panes.get(S.focused);
   const digit = /^Digit([1-9])$/.exec(e.code);
   if (digit) {
@@ -1654,6 +1775,7 @@ function handleHotkey(e) {
     case 'KeyN': if (projectDir()) newPane({ kind: 'claude', cwd: projectDir() }); else newPanePopover('claude'); return true;
     case 'KeyO': newPanePopover('claude'); return true;
     case 'KeyT': newPane({ kind: 'shell', cwd: (v && v.status.cwd) || projectDir() || S.recentDirs[0] || S.home }); return true;
+    case 'KeyB': newBrowserPane(); return true;
     case 'KeyW': if (v) closePane(v.id); return true;
     case 'Enter': toggleZoom(); return true;
     case 'ArrowLeft': moveFocus('left'); return true;
@@ -1666,18 +1788,22 @@ function handleHotkey(e) {
       return true;
     }
     case 'KeyR': if (v) renamePrompt(v.id); return true;
-    case 'KeyF': if (v && v.term) openSearch(v); return true;
-    case 'KeyE': if (v) api.openDir(v.id); return true;
-    case 'KeyD': if (v) toggleDiff(v.id); return true;
-    case 'KeyP': if (v) togglePrs(v.id); return true;
+    // Terminal-only keys fall through to a browser pane's address field.
+    case 'KeyF': if (!v || !v.term) return false; openSearch(v); return true;
+    case 'KeyE': if (!v || !v.term) return false; api.openDir(v.id); return true;
+    case 'KeyD': if (!v || !v.term) return false; toggleDiff(v.id); return true;
+    case 'KeyP': if (!v || !v.term) return false; togglePrs(v.id); return true;
     case 'KeyH': toggleToolbar(); return true;
-    case 'KeyC': if (v && v.term && v.term.hasSelection()) { api.clipboardWrite(v.term.getSelection()); v.term.clearSelection(); } return true;
-    case 'KeyV': if (v && v.term) api.clipboardRead().then(t => { if (t) v.term.paste(t); }); return true;
+    case 'KeyC': if (!v || !v.term) return false; if (v.term.hasSelection()) { api.clipboardWrite(v.term.getSelection()); v.term.clearSelection(); } return true;
+    case 'KeyV': if (!v || !v.term) return false; api.clipboardRead().then(t => { if (t) v.term.paste(t); }); return true;
     case 'Equal': bumpFont(1); return true;
     case 'Minus': bumpFont(-1); return true;
     default: return false;
   }
 }
+
+// Keys pressed inside a browser pane go to its page, so the main process sends Asterism's back.
+api.onHotkey(e => handleHotkey(e));
 
 window.addEventListener('keydown', e => {
   if (handleHotkey(e)) { e.preventDefault(); e.stopPropagation(); }
@@ -1722,6 +1848,7 @@ function buildToolbar() {
   }
   $('#btn-new-claude').onclick = () => newPanePopover('claude', $('#btn-new-claude'));
   $('#btn-new-shell').onclick = () => newPanePopover('shell', $('#btn-new-shell'));
+  $('#btn-new-browser').onclick = () => newBrowserPane();
   $('#btn-project').onclick = () => (popoverOpen() ? hidePopover() : projectsPopover());
   $('#btn-settings').onclick = settingsModal;
   $('#waiting').onclick = jumpToWaiting;
@@ -1756,11 +1883,16 @@ setInterval(() => { for (const v of S.panes.values()) updateBar(v); updateWaitin
   if (S.settings.reopenLast && !init.test) reopenLast();
   if (init.test) {
     window.__asterismTest = {
-      newPane, newPanePopover, applyTheme, settingsModal, setPreset, focusPane, setPeek, closePane, jumpToWaiting, toggleZoom, toggleDiff, togglePrs, openLayout, serializeLayout,
+      newPane, newBrowserPane, newPanePopover, applyTheme, settingsModal, setPreset, focusPane, setPeek, closePane, jumpToWaiting, toggleZoom, toggleDiff, togglePrs, openLayout, serializeLayout,
       openProject, leaveProject, createProject, projectsPopover, completedModal,
       state: () => ({
         order: L.leafIds(S.tree), focused: S.focused, preset: S.preset, zoomed: S.zoomed, project: S.project,
-        panes: [...S.panes.values()].map(v => ({ id: v.id, state: v.el.dataset.state, chip: v.bar.querySelector('.pane-chip').textContent, cols: v.term.cols, rows: v.term.rows, termBg: v.term.options.theme && v.term.options.theme.background, screen: readScreen(v.term, 200) })),
+        panes: [...S.panes.values()].map(v => ({
+          id: v.id, kind: v.status.kind, state: v.el.dataset.state,
+          ...(v.term
+            ? { chip: v.bar.querySelector('.pane-chip').textContent, cols: v.term.cols, rows: v.term.rows, termBg: v.term.options.theme && v.term.options.theme.background, screen: readScreen(v.term, 200) }
+            : { name: v.status.name, url: v.status.url }),
+        })),
       }),
     };
   }

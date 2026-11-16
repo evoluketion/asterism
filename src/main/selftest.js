@@ -25,6 +25,12 @@ async function run({ app, win, manager, store }) {
     while (Date.now() - t0 < ms) { if (await fn()) return true; await sleep(150); }
     return false;
   };
+  /** Serves one HTML page on a local port, for browser panes to open. */
+  const pageServer = async (html, pathname = '/') => {
+    const srv = require('http').createServer((_q, r) => { r.setHeader('content-type', 'text/html'); r.end(html); });
+    await new Promise(r => srv.listen(0, '127.0.0.1', r));
+    return { url: `http://127.0.0.1:${srv.address().port}${pathname}`, close: () => srv.close() };
+  };
   const stateOf = id => manager.get(id) && manager.get(id).status.state;
   const type = (id, s) => manager.panes.get(id).proc.write(s); // bypasses input acknowledgement
   /** Runs fn with the file manager stubbed out, returning the folders it was asked to open. */
@@ -110,6 +116,8 @@ async function run({ app, win, manager, store }) {
     const st = await js('window.__asterismTest.state()');
     check('grid layout of 4', st.preset === 'grid' && st.order.length === 4, st.order);
     check('terminals sized', st.panes.every(p => p.cols > 20 && p.rows > 5), st.panes.map(p => [p.cols, p.rows]));
+    const fill = await js(`[...document.querySelectorAll('.pane-term')].map(t => { const s = t.querySelector('.xterm-screen'); return s ? [s.offsetWidth, t.clientWidth] : null; })`);
+    check('terminals are fitted to their panes', fill.length === 4 && fill.every(f => f && f[0] > f[1] * 0.9 && f[0] <= f[1]), fill);
 
     check('SessionStart (exec-form curl hook) → idle', await waitFor(() => [0, 1, 2].every(i => stateOf(ids[i]) === 'idle')), ids.map(stateOf));
     check('shell pane is shell', stateOf(ids[3]) === 'shell');
@@ -324,6 +332,43 @@ async function run({ app, win, manager, store }) {
     await js(`document.querySelector('#popover #np-cancel').click()`);
     await sleep(200);
 
+    // A browser pane tiles beside the terminals, refuses local files and hands Asterism's keys back.
+    {
+      const { webContents } = require('electron');
+      const page = await pageServer('<!doctype html><title>Hello</title><p>hi</p>');
+      const url = page.url;
+      const bId = await js(`window.__asterismTest.newBrowserPane({ url: ${JSON.stringify(url)} })`);
+      const sel = `.pane[data-id=${JSON.stringify(bId)}]`;
+      const bPane = async () => (await js('window.__asterismTest.state()')).panes.find(p => p.id === bId);
+      const sB = await js('window.__asterismTest.state()');
+      check('browser pane joins the order and the grid', sB.order.length === 5 && sB.order[4] === bId && await js(`!!document.querySelector('#grid ${sel}')`), sB.order);
+      check('…is grey and never waiting', sB.panes.find(p => p.id === bId).state === 'browser' && !(await js(`document.querySelector('${sel} .pane-chip').offsetParent`)));
+      check('…and takes the page title as its name', await waitFor(async () => (await bPane()).name === 'Hello', 10000), await bPane());
+      const geometry = () => js(`(() => { const r = e => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.width, b.height]; }; return { ph: r(document.querySelector('${sel} .pane-web')), wv: r(document.querySelector('#browser-layer webview')) }; })()`);
+      const laidOver = g => g.ph[2] > 50 && g.ph.every((v, i) => Math.abs(v - g.wv[i]) < 1);
+      check('…with the page laid over the pane', await waitFor(async () => laidOver(await geometry()), 3000), await geometry());
+      await shot('07-browser-pane.png');
+      const guest = webContents.fromId(await js(`document.querySelector('#browser-layer webview').getWebContentsId()`));
+
+      await js(`(() => { const a = document.querySelector('${sel} .ub-addr'); a.value = 'file:///etc/'; a.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); })()`);
+      await sleep(300);
+      check('the address field refuses file:///', (await bPane()).url === url && guest.getURL() === url && await js(`[...document.querySelectorAll('.toast')].some(t => /only open http/.test(t.textContent))`), [(await bPane()).url, guest.getURL()]);
+      await guest.loadURL('file:///etc/').catch(() => {});
+      await sleep(300);
+      const listing = await guest.executeJavaScript('document.body ? document.body.innerText : ""').catch(() => '');
+      check('…and so does the browser session', !/passwd|hostname/.test(listing), listing.slice(0, 200));
+      await guest.loadURL(url).catch(() => {});
+
+      await js(`window.__asterismTest.focusPane(${JSON.stringify(bId)})`);
+      guest.focus();
+      guest.sendInputEvent({ type: 'keyDown', keyCode: 'Tab', modifiers: ['control', 'shift'] });
+      check('Ctrl+Shift+Tab inside the page still moves to the previous pane', await waitFor(async () => (await js('window.__asterismTest.state().focused')) === sB.order[3], 3000), await js('window.__asterismTest.state().focused'));
+
+      await js(`window.__asterismTest.closePane(${JSON.stringify(bId)}, { force: true })`);
+      check('closing the browser pane destroys its page', await waitFor(() => guest.isDestroyed(), 5000) && !(await js(`!!document.querySelector('#browser-layer webview')`)));
+      page.close();
+      await sleep(300);
+    }
 
     await js(`window.__asterismTest.closePane(${JSON.stringify(ids[3])}, { force: true })`);
     await sleep(300);
@@ -369,7 +414,11 @@ async function run({ app, win, manager, store }) {
     const bId = (await js('window.__asterismTest.state()')).order[0];
     check('Ctrl+Shift+N in the second project uses its folder', bId && manager.get(bId).cwd === root, bId && manager.get(bId).cwd);
     await waitFor(() => stateOf(bId) === 'idle');
-    await sleep(400);
+    // A browser pane in this project is saved with it and should come back at the same address.
+    const savedPage = await pageServer('<!doctype html><title>Saved page</title>', '/saved?x=1');
+    const pageUrl = savedPage.url;
+    await js(`window.__asterismTest.newBrowserPane({ url: ${JSON.stringify(pageUrl)}, name: 'docs page' })`);
+    await sleep(800);
 
     // Back to the first project: its panes return with their conversations resumed.
     await js(`window.__asterismTest.openProject(${JSON.stringify(projA.id)})`);
@@ -379,8 +428,19 @@ async function run({ app, win, manager, store }) {
     const resumedA = await waitFor(() => sA.order.slice(0, 3).every(id => manager.get(id) && manager.get(id).status.sessionId), 10000);
     const gotA = sA.order.slice(0, 3).map(id => manager.get(id).status.sessionId);
     check('…resuming their conversations', resumedA && gotA.every((sid, i) => sid === savedA[i]), { gotA, savedA });
-    check('the second project kept its pane', store.data.projects[projB.id].layout.panes.length === 1, store.data.projects[projB.id].layout);
+    const savedB = store.data.projects[projB.id].layout.panes;
+    check('the second project kept its panes, the browser pane with its address', savedB.length === 2 && savedB[1].kind === 'browser' && savedB[1].url === pageUrl && savedB[1].name === 'docs page', savedB);
     await waitFor(() => sA.order.every(id => ['idle', 'shell'].includes(stateOf(id))));
+    await js(`window.__asterismTest.openProject(${JSON.stringify(projB.id)})`);
+    await sleep(800);
+    const sB2 = await js('window.__asterismTest.state()');
+    const reopened = sB2.panes.find(p => p.kind === 'browser');
+    check('…and reopening it brings the browser pane back at that address', sB2.order.length === 2 && reopened && reopened.url === pageUrl && reopened.name === 'docs page', sB2.panes);
+    await js(`window.__asterismTest.openProject(${JSON.stringify(projA.id)})`);
+    await sleep(600);
+    savedPage.close();
+    const sA2 = await js('window.__asterismTest.state()');
+    await waitFor(() => sA2.order.every(id => ['idle', 'shell'].includes(stateOf(id))));
 
     // Themes: clicking a card previews it on the chrome and every terminal; Cancel reverts; Save keeps it.
     {
