@@ -89,6 +89,7 @@ body.toolbar-hidden #toolbar-reveal.urgent { background: linear-gradient(90deg, 
 }
 body.resizing, body.resizing * { user-select: none !important; }
 body.resizing .pane-term { pointer-events: none; }
+body.resizing #browser-layer webview { pointer-events: none; }
 
 /* Pane */
 .pane {
@@ -151,6 +152,18 @@ body.resizing .pane-term { pointer-events: none; }
 .pane-btn { background: transparent; border: none; color: var(--muted); padding: 0 4px; font-size: 13px; line-height: 1; }
 .pane-btn:hover { color: var(--text); background: transparent; }
 .pane { position: relative; }
+.pane[data-state="browser"] .pane-meta { cursor: default; text-decoration: none; }
+.pane-urlbar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 2px; padding: 3px 6px;
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.pane-urlbar .pane-btn { font-size: 14px; padding: 2px 6px; }
+.pane-urlbar .pane-btn:disabled { opacity: 0.35; cursor: default; }
+.pane-urlbar .ub-addr { flex: 1; min-width: 0; margin-left: 4px; padding: 3px 8px; font-size: 12px; }
+.pane-web { flex: 1; min-height: 0; background: #fff; }
+/* Webviews sit over their pane's .pane-web rather than inside it: see attachBrowser. */
+#browser-layer { position: fixed; inset: 0; pointer-events: none; z-index: 3; }
+#browser-layer webview { position: fixed; pointer-events: auto; }
 .pane-search {
   position: absolute; top: calc(var(--bar-h) + 6px); right: 14px; z-index: 4; display: flex; align-items: center; gap: 8px;
   background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: 8px; padding: 4px 8px; box-shadow: 0 6px 20px rgba(0,0,0,.45);

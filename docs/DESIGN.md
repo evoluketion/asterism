@@ -77,10 +77,20 @@ Drag dividers to resize. Zoom toggles one pane to fill the window.
   --match-head-commit <oid>`. It stops at the first failure. The step list is computed in main and shown in the
   confirm. The head commit the user saw is re-checked first, so a commit pushed in the meantime is never merged
   unseen. Branches are never deleted.
-- Toolbar: + Claude pane, + shell pane, layout picker, project menu, waiting counter.
+- Browser panes (`kind: 'browser'`, ids `b1`, `b2`…) live only in the renderer: no PTY, no PaneManager
+  entry, always grey, never "needs you". Each is a `<webview>` in a fixed `#browser-layer` positioned over
+  its pane's `.pane-web` placeholder. It can't live inside the pane, because `renderLayout` moves pane
+  elements and moving a webview reloads its page (checked on Electron 44). Main (`browser.js`) hardens every
+  guest in `will-attach-webview`: no preload, sandboxed, context isolation, `persist:asterism-browser`
+  partition. Only http, https and `about:blank` are allowed, and the partition answers `file:` with a 403, so
+  `trusted()` IPC stays limited to our own page. Every permission is denied and pop-ups go to the system
+  browser. Guest `before-input-event` sends Asterism's Ctrl+Shift shortcuts and Ctrl+Tab to the renderer as
+  `app:hotkey`, and handles F11/F12. MCP tools list terminal panes only, numbered by on-screen position so
+  the numbers match the title bars.
+- Toolbar: + Claude pane, + shell pane, + browser pane, layout picker, project menu, waiting counter.
 - Hotkeys (app-level, so they never collide with Claude's TUI):
   Ctrl+Shift+Space jump to longest-waiting pane · Ctrl+Shift+N new Claude pane ·
-  Ctrl+Shift+T new shell pane · Ctrl+Shift+W close pane · Ctrl+Shift+Enter zoom ·
+  Ctrl+Shift+T new shell pane · Ctrl+Shift+B new browser pane · Ctrl+Shift+W close pane · Ctrl+Shift+Enter zoom ·
   Ctrl+Shift+Arrows move focus · Ctrl+Shift+1..9 focus pane n · Ctrl+Shift+L cycle layout ·
   Ctrl+Shift+E open the pane's folder · Ctrl+Shift+D git diff · Ctrl+Shift+P pull requests · Ctrl+Shift+C / V copy / paste.
 - Shift+Enter sends ESC CR so it inserts a newline in Claude's prompt.

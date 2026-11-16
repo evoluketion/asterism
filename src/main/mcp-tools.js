@@ -59,28 +59,40 @@ function excerpt(text, n) {
 
 // manager: PaneManager; getOrder(): pane ids in on-screen order; readScreen(id, lines): Promise<string>
 function createToolHandler({ manager, getOrder, readScreen }) {
-  function ordered() {
+  /**
+   * Terminal panes with the number their title bar shows: their place on screen, which also counts
+   * browser panes. Panes not yet in the order are numbered after it.
+   */
+  function numbered() {
     const order = getOrder();
-    const all = manager.list();
-    const rank = id => { const i = order.indexOf(id); return i < 0 ? 1e9 : i; };
-    return all.sort((a, b) => rank(a.id) - rank(b.id));
+    let extra = order.length;
+    const rows = manager.list().map(pane => {
+      const i = order.indexOf(pane.id);
+      return { pane, number: i < 0 ? ++extra : i + 1 };
+    });
+    return { order, rows: rows.sort((a, b) => a.number - b.number) };
   }
 
   function resolve(ref) {
-    const panes = ordered();
+    const { order, rows } = numbered();
     const s = String(ref ?? '').trim();
-    const byNum = /^\d+$/.test(s) ? panes[Number(s) - 1] : null;
-    const hit = byNum || panes.find(p => p.id === s) || panes.find(p => p.name.toLowerCase() === s.toLowerCase());
+    let hit = null;
+    if (/^\d+$/.test(s)) {
+      const n = Number(s);
+      hit = rows.find(r => r.number === n);
+      if (!hit && n >= 1 && n <= order.length) throw new Error(`Pane ${n} is not a terminal pane.`);
+    }
+    hit = hit || rows.find(r => r.pane.id === s) || rows.find(r => r.pane.name.toLowerCase() === s.toLowerCase());
     if (!hit) throw new Error(`No pane "${s}". Call list_panes to see the available panes.`);
-    return { pane: hit, number: panes.indexOf(hit) + 1 };
+    return hit;
   }
 
   async function callTool(callerId, name, args) {
     if (name === 'list_panes') {
       await Promise.all([...manager.panes.values()].map(p => manager.refreshBranch(p)));
       const now = Date.now();
-      const rows = ordered().map((p, i) => ({
-        pane: i + 1,
+      const rows = numbered().rows.map(({ pane: p, number }) => ({
+        pane: number,
         name: p.name,
         you: p.id === callerId || undefined,
         kind: p.kind,

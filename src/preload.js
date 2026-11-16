@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('asterism', {
   clipboardRead: () => ipcRenderer.invoke('clipboard:read'),
   clipboardWrite: text => ipcRenderer.send('clipboard:write', text),
   openExternal: url => ipcRenderer.send('open:external', url),
+  browserLoad: (guestId, url) => ipcRenderer.invoke('browser:load', guestId, url),
   openDir: id => ipcRenderer.send('open:dir', id),
   screenReply: (reqId, text) => ipcRenderer.send('screen:reply', reqId, text),
   onData: on('pane:data'),
@@ -42,4 +43,5 @@ contextBridge.exposeInMainWorld('asterism', {
   onScreenRequest: on('screen:request'),
   onFocusPane: on('pane:focus'),
   onArchiveChanged: on('archive:changed'),
+  onHotkey: on('app:hotkey'),
 });

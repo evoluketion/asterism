@@ -1,7 +1,7 @@
 'use strict';
 
 const path = require('path');
-const { app, BrowserWindow, ipcMain, dialog, Notification, clipboard, shell: eShell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Notification, clipboard, shell: eShell, Menu, webContents } = require('electron');
 const { Store, newProjectId } = require('./store');
 const { createServer } = require('./server');
 const { PaneManager, isDir, sessionSaved } = require('./panes');
@@ -10,6 +10,7 @@ const shell = require('./shell');
 const { readTurns } = require('./transcript');
 const { createToolHandler } = require('./mcp-tools');
 const { detectVariant } = require('./variant');
+const { hardenWebview, loadGuest, wireBrowserGuests } = require('./browser');
 
 /**
  * An issue-branch build is labelled with its issue number and keeps its own user data. Electron's
@@ -104,12 +105,16 @@ function createWindow() {
       sandbox: true,
       spellcheck: false,
       autoplayPolicy: 'no-user-gesture-required',
+      webviewTag: true,
     },
   });
   if (process.platform === 'win32') setTaskbarDetails(win);
   // No default menu: its accelerators (Ctrl+R reload, Ctrl+W close...) would destroy every pane.
   Menu.setApplicationMenu(null);
   win.webContents.on('will-navigate', e => e.preventDefault());
+  win.webContents.on('will-attach-webview', (e, webPreferences, params) => {
+    if (!hardenWebview(webPreferences, params)) e.preventDefault();
+  });
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) eShell.openExternal(url);
     return { action: 'deny' };
@@ -227,6 +232,7 @@ function registerIpc() {
   handle('archive:complete', (_e, id, projectId) => completePane(id, projectId || null));
   handle('archive:remove', (_e, entryId) => store.removeArchived(entryId));
   handle('clipboard:read', () => clipboard.readText());
+  handle('browser:load', (e, guestId, url) => loadGuest(webContents.fromId(guestId), e.sender, url));
   listen('clipboard:write', (_e, text) => clipboard.writeText(String(text)));
   listen('open:external', (_e, url) => { if (/^https?:\/\//.test(url)) eShell.openExternal(url); });
   // The folder comes from the pane itself, so the renderer can only open folders panes are in.
@@ -310,6 +316,7 @@ app.whenReady().then(async () => {
   manager.on('exit', (id, code) => send('pane:exit', id, code));
 
   registerIpc();
+  wireBrowserGuests({ app, getWin: () => win, send });
   createWindow();
   for (const e of store.data.archive) if (e.summaryState === 'pending') runSummary(e);
 

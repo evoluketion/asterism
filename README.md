@@ -46,11 +46,16 @@ real terminal and puts every session on screen at once, built for a big monitor.
   branch, or every open one in the repo. Each shows draft, review and CI status, and **Diff** shows
   its changes right there. **Merge…** takes a
   PR out of draft, approves it and merges it in one go. This uses the [GitHub CLI](https://cli.github.com).
+- **Browser panes.** `+ Browser` or `Ctrl+Shift+B` opens a web page in a pane that tiles beside the
+  terminals, so a dev server can sit next to the Claude pane working on it. It opens on Google; type
+  `localhost:3000` or `example.com` in its address bar, or anything else to search Google. Pages can't use your camera, microphone or other permissions, and
+  pop-ups open in your normal browser.
 - **Layouts:** grid (four panes = four corners), columns, rows, main + stack and main + row. Drag
   dividers to resize, and drag title bars to swap panes.
 - **Projects:** a project is a name, a folder and its panes. Inside a project, `Ctrl+Shift+N` opens
   Claude in the project folder straight away. The layout saves as you work, so switching projects
-  and back restores every pane with its conversation resumed. Tick *Reopen the last project at
+  and back restores every pane with its conversation resumed, and every browser pane at its last
+  address. Tick *Reopen the last project at
   startup* in ⚙ Settings to have that happen when Asterism opens, too.
 - **12 themes**, 9 dark and 3 light, with live preview. Each theme recolours both the window and
   the terminals.
@@ -86,7 +91,7 @@ npm run dist:win
 ```
 
 This builds a portable `Asterism-<version>.exe` in `dist/`: no install, just run it, like the
-AppImage. Windows uses node-pty's prebuilt ConPTY binaries, so no build tools are needed. *The Windows build hasn't been tested yet.*
+AppImage. Windows uses node-pty's prebuilt ConPTY binaries, so no build tools are needed.
 
 ### Issue builds
 
@@ -157,6 +162,7 @@ a project removes its entries.
 | `Ctrl+Shift+N` | New Claude pane in the project folder (asks for a folder outside a project) |
 | `Ctrl+Shift+O` | New Claude pane in a folder you pick |
 | `Ctrl+Shift+T` | New shell pane in the focused pane's folder |
+| `Ctrl+Shift+B` | New browser pane |
 | `Ctrl+Shift+W` | Close pane |
 | `Ctrl+Shift+Enter` | Zoom / unzoom |
 | `Ctrl+Shift+Arrows` | Move focus |
@@ -248,7 +254,8 @@ across automatically the first time Asterism starts.
 
 ```bash
 npm test     # unit tests: layout, status rules, server and MCP, settings store, pane names,
-             # session resume, git, pull requests, completed-pane archive, shell PATH, issue-build variants
+             # session resume, git, pull requests, completed-pane archive, shell PATH, issue-build variants,
+             # browser-pane addresses and lock-down
 npm run icon # re-render build/icon.png and src/assets/icon.{png,ico} from build/icon.svg
 
 # The whole app with stand-in Claude panes (test/fake-claude.js fires hooks like Claude Code does)
@@ -291,6 +298,7 @@ src/
     claude-config.js  per-pane hook settings, MCP config and the claude wrapper
     shell.js          shell detection and startup (bash, zsh, fish, pwsh, cmd)
     mcp-tools.js      list_panes, get_pane_transcript, read_pane_screen
+    browser.js        locking down browser panes: allowed addresses, permissions, shortcuts
     transcript.js     reading Claude's conversation transcripts
     git.js            branch and diff for a pane's folder
     github.js         pull requests via the gh CLI: list, ready, approve, merge
@@ -302,6 +310,7 @@ src/
     app.js            panes, layouts, projects, shortcuts, settings
     layout.js         split-tree layouts
     themes.js         colour themes
+    url.js            what a browser pane's address field means
   preload.js          the bridge between window and main process
 scripts/              packaging (dist.js), icon rendering, postinstall
 test/                 unit tests and the fake claude
@@ -311,6 +320,6 @@ docs/                 design notes and README images
 
 ## Status
 
-Version 0.1, a personal tool. Tested on Linux (Fedora, Wayland) with bash and real Claude Code. The
-Windows build and the zsh, fish, PowerShell and cmd startup paths are written but untested. macOS
+Version 0.1, a personal tool. Used daily with real Claude Code on Linux (Fedora, Wayland) with bash
+and on Windows with PowerShell. The zsh, fish and cmd startup paths are written but untested. macOS
 isn't packaged.
