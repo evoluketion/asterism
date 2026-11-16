@@ -47,6 +47,15 @@ function appHotkey(input) {
   return { code: input.code, key: input.key, ctrlKey: true, shiftKey: !!input.shift, altKey: false, metaKey: false, repeat: !!input.isAutoRepeat };
 }
 
+/**
+ * Loads an address in one of `host`'s browser panes. Loading from main keeps a navigation the page
+ * cancels (a script redirect, say) quiet: when the renderer loads, Electron logs every cancel as an error.
+ */
+function loadGuest(guest, host, url) {
+  if (!guest || guest.isDestroyed() || guest.getType() !== 'webview' || guest.hostWebContents !== host || !allowedUrl(url)) return;
+  return guest.loadURL(url).then(() => {}, () => {});
+}
+
 /** Polices every browser-pane guest: where it may go, what it may ask for, and which keys belong to Asterism. */
 function wireBrowserGuests({ app, getWin, send }) {
   const { session, shell } = require('electron');
@@ -87,4 +96,4 @@ function wireBrowserGuests({ app, getWin, send }) {
   });
 }
 
-module.exports = { PARTITION, allowedUrl, hardenWebview, appHotkey, wireBrowserGuests };
+module.exports = { PARTITION, allowedUrl, hardenWebview, appHotkey, loadGuest, wireBrowserGuests };

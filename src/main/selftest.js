@@ -350,6 +350,29 @@ async function run({ app, win, manager, store }) {
       await shot('07-browser-pane.png');
       const guest = webContents.fromId(await js(`document.querySelector('#browser-layer webview').getWebContentsId()`));
 
+      // A page that redirects by script before it finishes loading cancels the first navigation.
+      const hop = require('http').createServer((q, r) => {
+        r.setHeader('content-type', 'text/html');
+        if (q.url.startsWith('/slow')) { setTimeout(() => r.end(''), 1500); return; }
+        if (q.url.startsWith('/two')) { r.end('<title>Two</title>'); return; }
+        r.end('<img src="/slow"><script>setTimeout(() => location.replace("/two"), 100)</script>');
+      });
+      await new Promise(r => hop.listen(0, '127.0.0.1', r));
+      const logged = [];
+      const realError = console.error;
+      console.error = (...a) => { logged.push(a.map(String).join(' ')); realError(...a); };
+      try {
+        await js(`(() => { const a = document.querySelector('${sel} .ub-addr'); a.value = ${JSON.stringify(`127.0.0.1:${hop.address().port}/`)}; a.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); })()`);
+        const hopped = await waitFor(() => /\/two$/.test(guest.getURL()), 5000);
+        await sleep(300);
+        check('a page that redirects as it loads logs no error', hopped && !logged.some(l => /ERR_ABORTED/.test(l)), { url: guest.getURL(), logged });
+      } finally {
+        console.error = realError;
+        hop.close();
+      }
+      await guest.loadURL(url).catch(() => {});
+      await waitFor(async () => (await bPane()).url === url, 3000);
+
       await js(`(() => { const a = document.querySelector('${sel} .ub-addr'); a.value = 'file:///etc/'; a.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); })()`);
       await sleep(300);
       check('the address field refuses file:///', (await bPane()).url === url && guest.getURL() === url && await js(`[...document.querySelectorAll('.toast')].some(t => /only open http/.test(t.textContent))`), [(await bPane()).url, guest.getURL()]);

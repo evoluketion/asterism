@@ -262,11 +262,14 @@ function attachBrowser(view) {
   const autoName = () => view.pageTitle || urlHost(view.status.url) || 'Browser';
   resetAddr();
 
+  // Every guest starts blank and main loads the real address once it is attached: see loadGuest.
   const wv = document.createElement('webview');
   wv.setAttribute('allowpopups', '');
-  wv.src = view.status.url;
+  wv.src = 'about:blank';
   $('#browser-layer').appendChild(wv);
+  let attached = false;
   let loading = false;
+  const load = url => api.browserLoad(wv.getWebContentsId(), url);
 
   // Runs straight after layout (from renderLayout or a ResizeObserver), so reading the rect is cheap.
   const place = () => {
@@ -279,7 +282,7 @@ function attachBrowser(view) {
   };
   // In-page navigations (hash and pushState) can fire constantly, so only full loads trigger a save.
   const navigated = (url, save) => {
-    if (url === view.status.url) return;
+    if (!attached || url === view.status.url) return;
     view.status.url = url;
     if (document.activeElement !== addr) resetAddr();
     navState();
@@ -289,7 +292,8 @@ function attachBrowser(view) {
   const go = () => {
     const r = toUrl(addr.value);
     if (r.error) { toast(r.error); return; }
-    wv.src = r.url;
+    if (attached) load(r.url);
+    else view.status.url = r.url;
     wv.focus();
   };
 
@@ -326,6 +330,11 @@ function attachBrowser(view) {
     if (e.key === 'Escape') { e.preventDefault(); resetAddr(); wv.focus(); }
   });
 
+  wv.addEventListener('dom-ready', () => {
+    if (attached) return;
+    attached = true;
+    if (view.status.url !== 'about:blank') load(view.status.url);
+  });
   wv.addEventListener('did-navigate', e => navigated(e.url, true));
   wv.addEventListener('did-navigate-in-page', e => { if (e.isMainFrame) navigated(e.url, false); });
   wv.addEventListener('page-title-updated', e => {

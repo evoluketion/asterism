@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { PARTITION, allowedUrl, hardenWebview, appHotkey } = require('../src/main/browser');
+const { PARTITION, allowedUrl, hardenWebview, appHotkey, loadGuest } = require('../src/main/browser');
 
 test('allowedUrl accepts web pages and the blank page only', () => {
   for (const url of ['https://example.com/', 'http://localhost:3000/x?y=1', 'HTTPS://EXAMPLE.COM', 'about:blank']) {
@@ -34,6 +34,19 @@ test('hardenWebview refuses a guest that would open a disallowed address', () =>
   assert.strictEqual(hardenWebview({}, { src: 'file:///home' }), false);
   assert.strictEqual(hardenWebview({}, { src: '' }), false);
   assert.strictEqual(hardenWebview({}, { src: 'about:blank' }), true);
+});
+
+test('loadGuest only loads allowed addresses in the calling window\'s own browser panes', async () => {
+  const host = {};
+  const loads = [];
+  const guest = (o = {}) => ({ isDestroyed: () => false, getType: () => 'webview', hostWebContents: host, loadURL: async url => { loads.push(url); throw new Error('ERR_ABORTED'); }, ...o });
+  await loadGuest(guest(), host, 'https://example.com/');
+  await loadGuest(guest(), host, 'file:///etc/passwd');
+  await loadGuest(guest({ hostWebContents: {} }), host, 'https://other.example/');
+  await loadGuest(guest({ getType: () => 'window' }), host, 'https://window.example/');
+  await loadGuest(guest({ isDestroyed: () => true }), host, 'https://gone.example/');
+  await loadGuest(null, host, 'https://none.example/');
+  assert.deepStrictEqual(loads, ['https://example.com/']);
 });
 
 test('appHotkey forwards Asterism shortcuts as renderer key events', () => {

@@ -1,7 +1,7 @@
 'use strict';
 
 const path = require('path');
-const { app, BrowserWindow, ipcMain, dialog, Notification, clipboard, shell: eShell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Notification, clipboard, shell: eShell, Menu, webContents } = require('electron');
 const { Store, newProjectId } = require('./store');
 const { createServer } = require('./server');
 const { PaneManager, isDir, sessionSaved } = require('./panes');
@@ -10,7 +10,7 @@ const shell = require('./shell');
 const { readTurns } = require('./transcript');
 const { createToolHandler } = require('./mcp-tools');
 const { detectVariant } = require('./variant');
-const { hardenWebview, wireBrowserGuests } = require('./browser');
+const { hardenWebview, loadGuest, wireBrowserGuests } = require('./browser');
 
 /**
  * An issue-branch build is labelled with its issue number and keeps its own user data. Electron's
@@ -232,6 +232,7 @@ function registerIpc() {
   handle('archive:complete', (_e, id, projectId) => completePane(id, projectId || null));
   handle('archive:remove', (_e, entryId) => store.removeArchived(entryId));
   handle('clipboard:read', () => clipboard.readText());
+  handle('browser:load', (e, guestId, url) => loadGuest(webContents.fromId(guestId), e.sender, url));
   listen('clipboard:write', (_e, text) => clipboard.writeText(String(text)));
   listen('open:external', (_e, url) => { if (/^https?:\/\//.test(url)) eShell.openExternal(url); });
   // The folder comes from the pane itself, so the renderer can only open folders panes are in.
