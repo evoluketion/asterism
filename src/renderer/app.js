@@ -148,6 +148,7 @@ function attachTerminal(view) {
       <button class="pane-btn restart hidden" title="Start Claude again, resuming this conversation">↻ Claude</button>
       <button class="pane-btn diff" title="Git diff (Ctrl+Shift+D)">±</button>
       <button class="pane-btn prs" title="Pull requests (Ctrl+Shift+P)">⇄</button>
+      <button class="pane-btn park" title="Park: close the pane and keep a summary of it to resume later">⏸</button>
       <button class="pane-btn done" title="Mark as completed: close the pane and keep it in the completed history">✓</button>`);
   el.insertAdjacentHTML('beforeend', `
     <div class="pane-term"></div>
@@ -208,7 +209,8 @@ function attachTerminal(view) {
     b.addEventListener('click', () => { view.prScope = b.dataset.scope; view.prResult = null; loadPrs(view); prBox.focus(); });
   }
   bar.querySelector('.prs').addEventListener('click', e => { e.stopPropagation(); togglePrs(view.id); });
-  bar.querySelector('.done').addEventListener('click', e => { e.stopPropagation(); completePane(view.id); });
+  bar.querySelector('.done').addEventListener('click', e => { e.stopPropagation(); recordPane(view.id); });
+  bar.querySelector('.park').addEventListener('click', e => { e.stopPropagation(); recordPane(view.id, { parked: true }); });
   bar.querySelector('.pane-meta').addEventListener('click', e => { e.stopPropagation(); api.openDir(view.id); });
 
   term.onData(data => {
@@ -417,23 +419,41 @@ function closePane(id, { force = false } = {}) {
   else S.focused = null;
 }
 
-// Records the pane in the completed history, then closes it. Any summary arrives later.
-async function completePane(id) {
+// Records the pane in the completed or parked history, then closes it. Any summary arrives later.
+// Main refuses to park without a summary to resume from, and the pane then stays open.
+async function recordPane(id, { parked = false } = {}) {
   const view = S.panes.get(id);
   if (!view || view.completing || view.status.kind !== 'claude' || !confirmClose(view)) return;
   view.completing = true;
   let res;
   try {
-    res = await api.completePane(id, S.project);
+    res = await (parked ? api.parkPane : api.completePane)(id, S.project);
   } catch (err) {
     view.completing = false;
-    toast(`Could not mark as completed: ${err.message || err}`);
+    toast(`Could not ${parked ? 'park' : 'mark as completed'}: ${err.message || err}`);
     return;
   }
   S.archive = res.list;
+  if (res.refused) {
+    view.completing = false;
+    toast(res.refused);
+    return;
+  }
   closePane(id, { force: true });
-  const msg = res.summarised ? 'Summarising for completed history…' : 'Marked as completed';
+  const msg = parked ? 'Parked. Summarising so it can be resumed…'
+    : res.summarised ? 'Summarising for completed history…' : 'Marked as completed';
   toast(res.reason ? `${msg}. ${res.reason}` : msg, { info: true });
+}
+
+// Parking needs summaries, so the button is dimmed and explains why while they're off.
+function syncParkButton(view) {
+  const b = view.bar.querySelector('.park');
+  if (!b) return;
+  const off = !S.settings.archiveCompleted;
+  b.classList.toggle('hidden', view.status.kind !== 'claude');
+  b.classList.toggle('off', off);
+  b.title = off ? 'Parking needs "Summarise completed panes with Claude" turned on in Settings'
+    : 'Park: close the pane and keep a summary of it to resume later';
 }
 
 async function restartPane(id) {
@@ -1108,6 +1128,7 @@ function updateBar(view) {
   chip.textContent = label;
   chip.classList.toggle('hidden', browser);
   view.bar.querySelector('.done')?.classList.toggle('hidden', s.kind !== 'claude');
+  syncParkButton(view);
   view.bar.querySelector('.restart')?.classList.toggle('hidden', !(s.kind === 'claude' && (state === 'shell' || state === 'exited')));
 }
 
@@ -1378,6 +1399,11 @@ function renderEmpty() {
   completed.classList.toggle('hidden', !done);
   completed.textContent = `✓ Completed panes (${done})`;
   completed.onclick = completedModal;
+  const nParked = projectArchive({ parked: true }).length;
+  const parked = $('#empty-parked');
+  parked.classList.toggle('hidden', !nParked);
+  parked.textContent = `⏸ Parked panes (${nParked})`;
+  parked.onclick = parkedModal;
   const box = $('#empty-projects');
   box.replaceChildren(...(p ? [] : Object.values(S.projects).filter(x => x !== lsProj).sort((a, b) => a.name.localeCompare(b.name)).map(proj => {
     const b = document.createElement('button');
@@ -1481,8 +1507,10 @@ function projectsPopover() {
     const startDir = (adoptable && commonPaneDir()) || S.recentDirs[0] || S.home;
     const count = p => ((p.layout && p.layout.panes) || []).length;
     const done = projectArchive().length;
+    const nParked = projectArchive({ parked: true }).length;
     pop.innerHTML = `
       <h3>Projects</h3>
+      ${nParked ? `<div class="list"><button id="pj-parked">⏸ Parked panes (${nParked})…</button></div>` : ''}
       ${done ? `<div class="list"><button id="pj-completed">✓ Completed panes (${done})…</button></div>` : ''}
       ${cur ? `<span class="muted">New Claude panes start in <b>${esc(shortPath(cur.dir))}</b>.</span>
         <div class="row"><button id="pj-edit">Edit ${esc(cur.name)}…</button><button id="pj-leave">Leave project</button></div>` : ''}
@@ -1497,6 +1525,7 @@ function projectsPopover() {
       <span class="muted">A project is a folder and its panes. New panes open in the folder, and the layout is saved as you work.</span>`;
     const q = s => pop.querySelector(s);
     if (q('#pj-completed')) q('#pj-completed').onclick = () => { hidePopover(); completedModal(); };
+    if (q('#pj-parked')) q('#pj-parked').onclick = () => { hidePopover(); parkedModal(); };
     if (q('#pj-edit')) q('#pj-edit').onclick = () => { hidePopover(); projectModal(cur.id); };
     if (q('#pj-leave')) q('#pj-leave').onclick = () => { hidePopover(); leaveProject(); };
     if (q('#pj-last')) q('#pj-last').onclick = () => { hidePopover(); openLayout(ls, { resume: true }); };
@@ -1551,50 +1580,63 @@ function projectModal(id) {
   q('#pm-name').focus();
 }
 
-/** The completed history of the active project, or of loose panes outside any project. */
-function projectArchive() {
-  return S.archive.filter(e => e.project === S.project);
+/** The completed (or parked) history of the active project, or of loose panes outside any project. */
+function projectArchive({ parked = false } = {}) {
+  return S.archive.filter(e => e.project === S.project && !!e.parked === parked);
 }
 
 const entryName = e => e.name || baseName(e.cwd) || e.cwd;
 
-function completedModal() {
+const completedModal = () => historyModal();
+const parkedModal = () => historyModal({ parked: true });
+
+// Parked entries are resumed, which takes them off the list; completed ones are reopened and stay.
+function historyModal({ parked = false } = {}) {
   const m = $('#modal');
-  const list = projectArchive();
+  const list = projectArchive({ parked });
   const p = activeProject();
   // Re-renders as summaries arrive, so keep whichever summaries the user has expanded.
   const expanded = new Set([...m.querySelectorAll('.completed details[open]')].map(d => d.dataset.id));
   const row = (e, i) => {
-    const when = new Date(e.completedAt);
-    const time = `<span class="done-time" title="Completed ${esc(when.toLocaleString())}">${esc(when.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }))}</span>`;
-    const del = `<button data-i="${i}" class="cm-del" title="Remove from the history">✕</button>`;
+    const when = new Date(parked ? e.parkedAt : e.completedAt);
+    const time = `<span class="done-time" title="${parked ? 'Parked' : 'Completed'} ${esc(when.toLocaleString())}">${esc(when.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }))}</span>`;
+    const del = `<button data-i="${i}" class="cm-del" title="Remove from the ${parked ? 'parked list' : 'history'}">✕</button>`;
     const where = [esc(shortPath(e.cwd)), e.branch ? `⎇ ${esc(e.branch)}` : ''].filter(Boolean).join(' · ');
     const head = `<b>${esc(entryName(e))}</b> <span class="muted" title="${esc(e.cwd)}">${where}</span><span class="spacer"></span>${time}`;
     if (e.summaryState === 'none') return `<div class="done-row"><div class="done-head">${head}${del}</div></div>`;
-    const open = `<button data-i="${i}" class="cm-open primary" ${e.summaryState === 'pending' ? 'disabled' : ''} title="New Claude pane in this folder, given the summary">Reopen</button>`;
+    const open = `<button data-i="${i}" class="cm-open primary" ${e.summaryState === 'pending' ? 'disabled' : ''} title="New Claude pane in this folder, given the summary${parked ? '. Takes it off the parked list' : ''}">${parked ? 'Resume' : 'Reopen'}</button>`;
     const body = e.summaryState === 'pending' ? '<span class="muted">Summarising…</span>'
       : `<details class="done-summary" data-id="${esc(e.id)}" ${expanded.has(e.id) ? 'open' : ''}><summary>Summary${e.summaryState === 'fallback' ? ' <span class="muted">(draft — Claude summary failed)</span>' : ''}</summary><div>${esc(e.summary)}</div></details>`;
     return `<div class="done-row"><div class="done-head">${head}${open}${del}</div>${body}</div>`;
   };
   m.innerHTML = `
-    <h2>Completed panes${p ? ` · ${esc(p.name)}` : ''}</h2>
-    <div class="completed">${list.length ? list.map(row).join('') : '<span class="muted">Nothing completed yet.</span>'}</div>
+    <h2>${parked ? 'Parked' : 'Completed'} panes${p ? ` · ${esc(p.name)}` : ''}</h2>
+    <div class="completed" data-parked="${parked}">${list.length ? list.map(row).join('') : `<span class="muted">Nothing ${parked ? 'parked' : 'completed'} yet.</span>`}</div>
     <div class="actions"><button id="cm-close">Close</button></div>`;
   $('#modal-backdrop').classList.remove('hidden');
   const close = () => $('#modal-backdrop').classList.add('hidden');
   m.querySelector('#cm-close').onclick = close;
-  m.querySelectorAll('.cm-open').forEach(b => { b.onclick = () => { close(); reopenArchived(list[b.dataset.i]); }; });
+  m.querySelectorAll('.cm-open').forEach(b => {
+    b.onclick = async () => {
+      close();
+      const entry = list[b.dataset.i];
+      if (reopenArchived(entry) && parked) S.archive = await api.removeArchived(entry.id);
+    };
+  });
   m.querySelectorAll('.cm-del').forEach(b => {
     b.onclick = async () => {
       S.archive = await api.removeArchived(list[b.dataset.i].id);
-      completedModal();
+      historyModal({ parked });
       if (!S.panes.size) renderEmpty();
     };
   });
 }
 
-function completedModalOpen() {
-  return !$('#modal-backdrop').classList.contains('hidden') && !!$('#modal .completed');
+/** Which history the open modal shows: null when none is open. */
+function openHistory() {
+  if ($('#modal-backdrop').classList.contains('hidden')) return null;
+  const box = $('#modal .completed');
+  return box ? { parked: box.dataset.parked === 'true' } : null;
 }
 
 /** A fresh Claude session in the entry's folder, given its summary. The entry stays in the history. */
@@ -1652,7 +1694,7 @@ function settingsModal() {
     <label class="check"><input id="set-notify" type="checkbox" ${st.notifyDesktop ? 'checked' : ''}> Desktop notification when a pane needs you and Asterism isn't focused</label>
     <label class="check"><input id="set-reopen" type="checkbox" ${st.reopenLast ? 'checked' : ''}> Reopen the last project at startup, resuming each pane's conversation</label>
     <label class="check"><input id="set-sound" type="checkbox" ${st.sound ? 'checked' : ''}> Sound when a pane you aren't looking at needs you</label>
-    <label class="check"><input id="set-archive" type="checkbox" ${st.archiveCompleted ? 'checked' : ''}> Summarise completed panes with Claude so they can be reopened later (uses tokens)</label>
+    <label class="check"><input id="set-archive" type="checkbox" ${st.archiveCompleted ? 'checked' : ''}> Summarise completed panes with Claude so they can be reopened later, and allow parking panes to resume (uses tokens)</label>
     <div id="set-archive-opts" class="sub ${st.archiveCompleted ? '' : 'hidden'}">
       <div class="row"><label style="flex:1">Summary prompt</label><a href="#" id="set-prompt-reset">Reset to default</a></div>
       <textarea id="set-prompt" rows="5" spellcheck="false">${esc(st.summaryPrompt || S.defaults.summaryPrompt)}</textarea>
@@ -1697,6 +1739,7 @@ function settingsModal() {
       prMergeMethod: q('#set-merge').value,
     });
     applyFont();
+    for (const v of S.panes.values()) syncParkButton(v);
     close();
   };
 }
@@ -1880,7 +1923,8 @@ setInterval(() => { for (const v of S.panes.values()) updateBar(v); updateWaitin
   });
   api.onArchiveChanged(list => {
     S.archive = list;
-    if (completedModalOpen()) completedModal();
+    const open = openHistory();
+    if (open) historyModal(open);
   });
   $('.brand').textContent = S.appName;
   buildToolbar();
@@ -1893,7 +1937,7 @@ setInterval(() => { for (const v of S.panes.values()) updateBar(v); updateWaitin
   if (init.test) {
     window.__asterismTest = {
       newPane, newBrowserPane, newPanePopover, applyTheme, settingsModal, setPreset, focusPane, setPeek, closePane, jumpToWaiting, toggleZoom, toggleDiff, togglePrs, openLayout, serializeLayout,
-      openProject, leaveProject, createProject, projectsPopover, completedModal,
+      openProject, leaveProject, createProject, projectsPopover, completedModal, parkedModal,
       state: () => ({
         order: L.leafIds(S.tree), focused: S.focused, preset: S.preset, zoomed: S.zoomed, project: S.project,
         panes: [...S.panes.values()].map(v => ({

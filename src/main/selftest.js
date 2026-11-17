@@ -699,6 +699,64 @@ async function run({ app, win, manager, store }) {
       check('✕ removes an entry from the history', !archived().some(e => e.id === e4.id), archived().map(e => e.id));
       await js(`document.querySelector('#modal #cm-close').click()`);
       check('the empty screen offers the completed history', await js(`!document.querySelector('#empty-completed').classList.contains('hidden') && document.querySelector('#empty-completed').textContent.includes('(${archived().length})')`));
+
+      // Parking: like ✓, but only with summaries on, and resumed from its own list.
+      const parkedList = () => archived().filter(e => e.parked);
+      const parkBtn = id => `document.querySelector('.pane[data-id=${JSON.stringify(id)}] .pane-btn.park')`;
+      const setSummaries = async on => {
+        await js('window.__asterismTest.settingsModal()');
+        await sleep(150);
+        await js(`document.querySelector('#set-archive').checked = ${on}; document.querySelector('#set-save').click()`);
+        await waitFor(() => !!store.settings.archiveCompleted === on);
+        await sleep(150);
+      };
+      const shell2 = await js(`window.__asterismTest.newPane(${JSON.stringify({ kind: 'shell', cwd: root })})`);
+      await sleep(300);
+      check('⏸ is hidden on shell panes', await js(`${parkBtn(shell2)}.classList.contains('hidden')`));
+      await js(`window.__asterismTest.closePane(${JSON.stringify(shell2)}, { force: true })`);
+      const p1 = await openClaude();
+      saveTranscript(manager.get(p1).status.sessionId);
+      check('⏸ is dimmed with an explanation while summaries are off', await js(`(b => !b.classList.contains('hidden') && b.classList.contains('off') && /Summarise/.test(b.title))(${parkBtn(p1)})`));
+      const nBefore = store.data.archive.length;
+      await js(`${parkBtn(p1)}.click()`);
+      await sleep(400);
+      check('…and parking then keeps the pane open and records nothing', !!manager.get(p1) && store.data.archive.length === nBefore);
+      check('…and says why', await js(`[...document.querySelectorAll('.toast')].some(t => /Parking needs/.test(t.textContent))`));
+
+      await setSummaries(true);
+      check('turning summaries on lights ⏸ up', !(await js(`${parkBtn(p1)}.classList.contains('off')`)));
+      const sidP = manager.get(p1).status.sessionId;
+      await js(`${parkBtn(p1)}.click()`);
+      await waitFor(() => parkedList().length === 1 && !manager.get(p1), 3000);
+      const pe = parkedList()[0];
+      check('⏸ closes the pane and records it as parked', pe && !manager.get(p1) && pe.sessionId === sidP && pe.parkedAt && !('completedAt' in pe), pe);
+      check('…summarised like a completed pane', await waitFor(() => parkedList()[0].summaryState === 'done' && /^Fake summary/.test(parkedList()[0].summary)), parkedList()[0]);
+
+      const u1 = await js(`window.__asterismTest.newPane(${JSON.stringify({ kind: 'claude', cwd: root })})`);
+      await waitFor(() => stateOf(u1) === 'idle');
+      await js(`${parkBtn(u1)}.click()`);
+      await sleep(400);
+      check('an unsaved session can\'t be parked', !!manager.get(u1) && parkedList().length === 1);
+      await js(`window.__asterismTest.closePane(${JSON.stringify(u1)}, { force: true })`);
+      await sleep(200);
+
+      check('the empty screen offers the parked list', await js(`!document.querySelector('#empty-parked').classList.contains('hidden') && document.querySelector('#empty-parked').textContent.includes('(1)')`));
+      await js('window.__asterismTest.completedModal()');
+      await sleep(200);
+      check('the completed history leaves parked panes out', await js(`document.querySelectorAll('#modal .done-row').length`) === archived().filter(e => !e.parked).length);
+      await js('window.__asterismTest.parkedModal()');
+      await sleep(200);
+      check('the parked list shows it with Resume', await js(`document.querySelector('#modal h2').textContent.startsWith('Parked') && document.querySelectorAll('#modal .done-row').length === 1 && document.querySelector('#modal .cm-open').textContent === 'Resume'`));
+      const peSummary = parkedList()[0].summary;
+      await shot('12-parked.png');
+      await js(`document.querySelector('#modal .cm-open').click()`);
+      await sleep(500);
+      const resumed = (await js('window.__asterismTest.state()')).order.slice(-1)[0];
+      const rr = manager.get(resumed);
+      check('Resume starts a new Claude pane with the summary', rr && rr.kind === 'claude' && rr.cwd === pe.cwd && (rr.appendSystemPrompt || '').includes(peSummary) && !rr.resume, rr && { cwd: rr.cwd, resume: rr.resume });
+      check('…and takes it off the parked list', await waitFor(() => parkedList().length === 0));
+      await js(`window.__asterismTest.closePane(${JSON.stringify(resumed)}, { force: true })`);
+      await setSummaries(false);
     }
   }
 
