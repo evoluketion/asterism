@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 const { EventEmitter } = require('events');
-const { buildEntry, draftSummary, summarise, contextPrompt, SUMMARY_PROMPT } = require('../src/main/archive');
+const { buildEntry, recordPlan, draftSummary, summarise, contextPrompt, SUMMARY_PROMPT } = require('../src/main/archive');
 
 const snap = { name: 'api', autoName: false, cwd: '/w/api/src', startCwd: '/w/api', branch: 'main', sessionId: 's1', openedAt: 5 };
 
@@ -23,6 +23,29 @@ test('an unsummarised entry holds only the name and folder', () => {
   const e = buildEntry(snap, { project: 'p1', now: 9, summarised: false });
   assert.deepStrictEqual(Object.keys(e).sort(), ['completedAt', 'cwd', 'id', 'name', 'project', 'summaryState']);
   assert.deepStrictEqual({ ...e, id: 'x' }, { id: 'x', project: 'p1', name: 'api', cwd: '/w/api', completedAt: 9, summaryState: 'none' });
+});
+
+test('a parked entry is marked and timed as parked', () => {
+  const e = buildEntry(snap, { now: 9, summarised: true, parked: true });
+  assert.strictEqual(e.parked, true);
+  assert.strictEqual(e.parkedAt, 9);
+  assert.ok(!('completedAt' in e));
+  assert.strictEqual(e.summaryState, 'pending');
+  assert.ok(!('parked' in buildEntry(snap)));
+});
+
+test('parking is refused without the summary setting or a saved session', () => {
+  assert.match(recordPlan({ parked: true, archiveCompleted: false, saved: true }).refused, /Summarise/);
+  assert.match(recordPlan({ parked: true, archiveCompleted: true, saved: false }).refused, /never saved/);
+  assert.deepStrictEqual(recordPlan({ parked: true, archiveCompleted: true, saved: true }), { summarised: true, reason: null });
+});
+
+test('completing is never refused, and summarises only a saved session with the setting on', () => {
+  assert.deepStrictEqual(recordPlan({ archiveCompleted: false, saved: true }), { summarised: false, reason: null });
+  assert.deepStrictEqual(recordPlan({ archiveCompleted: true, saved: true }), { summarised: true, reason: null });
+  const unsaved = recordPlan({ archiveCompleted: true, saved: false });
+  assert.strictEqual(unsaved.summarised, false);
+  assert.match(unsaved.reason, /never saved/);
 });
 
 // A stub child process: emits the given output then closes with `code`, unless `hang` is set.

@@ -154,6 +154,13 @@ waits for your first prompt. The entry stays in the history afterwards. Entries 
 summary only show the name and folder and can't be reopened. **✕** removes an entry, and deleting
 a project removes its entries.
 
+To put a Claude pane aside and come back to it later, click **⏸** to park it. Parking works like
+✓, but it needs **Summarise completed panes with Claude** turned on, because the summary is what
+you resume from. While that setting is off, ⏸ is dimmed and explains why. A conversation that was
+never saved can't be parked either. Parked panes are listed apart from completed ones, under **⏸
+Parked panes** in the projects menu or on the empty screen. **Resume** starts a new Claude session
+in the same folder with the summary as context and takes the entry off the parked list.
+
 ### Shortcuts
 
 | Shortcut | Action |
@@ -208,7 +215,7 @@ Everything in ⚙ Settings:
 | Desktop notification | Notify when a pane needs you and Asterism isn't focused. On by default. |
 | Reopen the last project at startup | Restore the last project's panes and resume their conversations when Asterism opens. Off by default. |
 | Sound | Play a sound when a pane you aren't looking at needs you. On by default. |
-| Summarise completed panes with Claude | Write a handoff summary when you close a pane with ✓, so it can be reopened later. Uses tokens. Off by default. When it's on, you can also edit the **summary prompt** (Reset to default restores it) and choose a **summary model** (blank uses Claude's default). |
+| Summarise completed panes with Claude | Write a handoff summary when you close a pane with ✓, so it can be reopened later. Parking a pane with ⏸ needs this on. Uses tokens. Off by default. When it's on, you can also edit the **summary prompt** (Reset to default restores it) and choose a **summary model** (blank uses Claude's default). |
 
 The bottom of the dialog lists every shortcut and shows which version you're running.
 
@@ -302,9 +309,9 @@ src/
     transcript.js     reading Claude's conversation transcripts
     git.js            branch and diff for a pane's folder
     github.js         pull requests via the gh CLI: list, ready, approve, merge
-    archive.js        completed-pane history and handoff summaries
+    archive.js        completed and parked pane history, and handoff summaries
     variant.js        issue-build labelling from the branch name
-    store.js          settings, projects and completed history
+    store.js          settings, projects and completed / parked history
     selftest.js       demo / real / screenshot self-tests
   renderer/
     app.js            panes, layouts, projects, shortcuts, settings

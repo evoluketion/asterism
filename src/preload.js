@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('asterism', {
   deleteProject: id => ipcRenderer.invoke('project:delete', id),
   saveSession: (ws, projectId) => ipcRenderer.send('session:save', ws, projectId),
   completePane: (id, projectId) => ipcRenderer.invoke('archive:complete', id, projectId),
+  parkPane: (id, projectId) => ipcRenderer.invoke('archive:park', id, projectId),
   removeArchived: entryId => ipcRenderer.invoke('archive:remove', entryId),
   clipboardRead: () => ipcRenderer.invoke('clipboard:read'),
   clipboardWrite: text => ipcRenderer.send('clipboard:write', text),

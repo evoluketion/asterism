@@ -18,14 +18,17 @@ const TIMEOUT_MS = 180000;
 const DRAFT_PROMPT_MAX = 1500;
 const DRAFT_REPLY_MAX = 3000;
 
-/** An auto name is stored as null so a reopened pane names itself after its folder again. */
-function buildEntry(snap, { project = null, now = Date.now(), summarised = false } = {}) {
+/**
+ * An auto name is stored as null so a reopened pane names itself after its folder again.
+ * A parked entry is one to resume later, kept apart from the completed history.
+ */
+function buildEntry(snap, { project = null, now = Date.now(), summarised = false, parked = false } = {}) {
   const entry = {
     id: newId('a'),
     project,
     name: snap.autoName ? null : snap.name,
     cwd: snap.startCwd || snap.cwd,
-    completedAt: now,
+    ...(parked ? { parked: true, parkedAt: now } : { completedAt: now }),
     summaryState: 'none',
   };
   if (!summarised) return entry;
@@ -37,6 +40,17 @@ function buildEntry(snap, { project = null, now = Date.now(), summarised = false
     openedAt: snap.openedAt || null,
     summary: null,
   };
+}
+
+/**
+ * Whether recording a pane summarises it. Parking is refused outright without a summary, since
+ * there would be nothing to resume from; completing just records less.
+ */
+function recordPlan({ parked = false, archiveCompleted = false, saved = false } = {}) {
+  if (parked && !archiveCompleted) return { refused: 'Parking needs "Summarise completed panes with Claude" turned on in Settings.' };
+  if (parked && !saved) return { refused: 'Nothing to park: the conversation was never saved.' };
+  const summarised = archiveCompleted && saved;
+  return { summarised, reason: archiveCompleted && !saved ? 'Nothing to summarise: the conversation was never saved.' : null };
 }
 
 const cap = (s, n) => (s.length > n ? s.slice(0, n) + '…' : s);
@@ -97,4 +111,4 @@ function contextPrompt(summary) {
   return `You are picking up work from a previous session. Summary:\n\n${summary.trim()}\n\nRead it, then wait for the user's instructions.\n`;
 }
 
-module.exports = { SUMMARY_PROMPT, buildEntry, draftSummary, summarise, contextPrompt };
+module.exports = { SUMMARY_PROMPT, buildEntry, recordPlan, draftSummary, summarise, contextPrompt };
