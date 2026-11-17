@@ -229,7 +229,8 @@ function registerIpc() {
     store.update(patch);
     store.saveNow();
   });
-  handle('archive:complete', (_e, id, projectId) => completePane(id, projectId || null));
+  handle('archive:complete', (_e, id, projectId) => recordPane(id, projectId || null));
+  handle('archive:park', (_e, id, projectId) => recordPane(id, projectId || null, { parked: true }));
   handle('archive:remove', (_e, entryId) => store.removeArchived(entryId));
   handle('clipboard:read', () => clipboard.readText());
   handle('browser:load', (e, guestId, url) => loadGuest(webContents.fromId(guestId), e.sender, url));
@@ -250,21 +251,19 @@ function registerIpc() {
   });
 }
 
-// Records a pane in the completed history. The summary, when there is one, is filled in after
-// this returns so the pane can close straight away.
-function completePane(id, projectId) {
+// Records a pane in the completed or parked history. The summary, when there is one, is filled in
+// after this returns so the pane can close straight away. A refused park leaves the pane open.
+function recordPane(id, projectId, { parked = false } = {}) {
   const pane = manager.get(id);
-  if (!pane) return { list: store.data.archive, summarised: false, reason: 'The pane is already closed.' };
+  if (!pane) return { list: store.data.archive, summarised: false, refused: 'The pane is already closed.' };
   const snap = manager.snapshot(pane);
   const transcriptPath = pane.status.transcriptPath;
-  const settings = store.settings;
-  const summarised = !!settings.archiveCompleted && sessionSaved(snap.sessionId);
-  const reason = settings.archiveCompleted && !summarised ? 'Nothing to summarise: the conversation was never saved.' : null;
-  const entry = archive.buildEntry(snap, { project: projectId, summarised });
+  const plan = archive.recordPlan({ parked, archiveCompleted: !!store.settings.archiveCompleted, saved: sessionSaved(snap.sessionId) });
+  if (plan.refused) return { list: store.data.archive, summarised: false, refused: plan.refused };
+  const entry = archive.buildEntry(snap, { project: projectId, summarised: plan.summarised, parked });
   const list = store.addArchived(entry);
-  if (!summarised) return { list, summarised, reason };
-  runSummary(entry, { transcriptPath, lastReply: snap.lastReply });
-  return { list, summarised };
+  if (plan.summarised) runSummary(entry, { transcriptPath, lastReply: snap.lastReply });
+  return { list, summarised: plan.summarised, reason: plan.reason || null };
 }
 
 const summaryRuns = new Set();
